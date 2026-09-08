@@ -1,0 +1,656 @@
+openapi: 3.0.3
+info:
+  title: HuoCode API
+  description: >
+    API for analyzing a public GitHub repository and identifying
+    "hotspot" files (high cyclomatic complexity × frequent modifications),
+    based on cyclomatic complexity and Git churn.
+    v1 analyzes Java only; files in any other language are returned with
+    status = unsupported_language (never silently ignored) — see the "How it
+    works" page for the language roadmap.
+    The API is strictly language-agnostic: every field is a number or a stable
+    enum/code, never a human-readable sentence — all labeling and phrasing is
+    left entirely to API consumers, built from these codes.
+    This is a public, read-mostly API: POST /analyze is rate-limited and may
+    require Turnstile step-up verification (see 428/403 below); no other
+    authentication is required or supported.
+    This tool is not a security audit and provides no guarantee
+    of reliability for the analyzed code.
+  version: 1.3.0
+  contact:
+    name: HuoCode
+externalDocs:
+  description: Full methodology ("How it works" page)
+  url: https://huocode.example.com/how-it-works
+
+servers:
+  - url: https://api.huocode.example.com
+    description: Production
+
+tags:
+  - name: Analysis
+    description: Triggering and tracking a repository analysis
+  - name: Reports
+    description: Retrieving already computed results
+  - name: Monitoring
+    description: Service health monitoring
+
+paths:
+  /analyze:
+    post:
+      tags: [Analysis]
+      summary: Trigger the analysis of a public GitHub repository
+      description: >
+        First checks whether a cached result exists for the repo's current commit SHA.
+        If so, returns it immediately (strategy "cached").
+        Otherwise, picks a strategy (direct API calls or shallow clone + git log)
+        based on repo size, then either returns the full result (small/medium repo,
+        synchronous processing) or a job identifier to poll (large repo, OR any repo
+        size when synchronous processing capacity is currently saturated — see spec
+        section 4.3; this keeps ordinary traffic spikes from ever producing a bare
+        rejection). May require a Turnstile challenge token for traffic flagged as
+        suspicious (adaptive step-up verification — see 428/403 responses).
+      operationId: analyzeRepository
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnalyzeRequest'
+            examples:
+              default:
+                value:
+                  repoUrl: "https://github.com/owner/repo"
+      responses:
+        '200':
+          description: Result available immediately (cached repo, or small/medium repo processed synchronously)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisResult'
+        '202':
+          description: Analysis accepted and running in the background (large repo) — poll via GET /analyze/{jobId}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobAccepted'
+        '400':
+          $ref: '#/components/responses/InvalidRepoUrl'
+        '403':
+          $ref: '#/components/responses/ChallengeFailed'
+        '404':
+          $ref: '#/components/responses/RepoNotFoundOrPrivate'
+        '413':
+          $ref: '#/components/responses/RepoTooLarge'
+        '428':
+          $ref: '#/components/responses/ChallengeRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/QueueFull'
+
+  /analyze/{jobId}:
+    get:
+      tags: [Analysis]
+      summary: Check the status or result of an asynchronous analysis
+      operationId: getAnalysisJob
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: Job found — "status" indicates whether it is still processing, has completed, or has failed
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/JobProcessing'
+                  - $ref: '#/components/schemas/JobFailed'
+                  - $ref: '#/components/schemas/AnalysisResult'
+                discriminator:
+                  propertyName: status
+                  mapping:
+                    processing: '#/components/schemas/JobProcessing'
+                    failed: '#/components/schemas/JobFailed'
+                    completed: '#/components/schemas/AnalysisResult'
+        '404':
+          $ref: '#/components/responses/JobNotFound'
+
+  /report/{owner}/{repo}:
+    get:
+      tags: [Reports]
+      summary: Retrieve an already computed result (permanent, shareable URL)
+      description: >
+        Read-only access to a cached result. Unlike POST /analyze,
+        this endpoint is never subject to application-level rate limiting or
+        Turnstile verification: it triggers no computation, only a read.
+      operationId: getPublicReport
+      parameters:
+        - $ref: '#/components/parameters/Owner'
+        - $ref: '#/components/parameters/Repo'
+      responses:
+        '200':
+          description: Result found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisResult'
+        '404':
+          $ref: '#/components/responses/ReportNotFound'
+
+  /report/{owner}/{repo}/files:
+    get:
+      tags: [Reports]
+      summary: Paginated drill-down over every analyzed/unsupported/error file
+      description: >
+        Secondary endpoint for the "browse all files" use case, kept separate
+        from GET /report/{owner}/{repo} so that the main response — used to
+        render the treemap, which needs the full file set at once and cannot
+        be usefully paginated — stays lean. Pagination applies only to
+        response serialization: percentile/normalization scoring (see spec
+        section 3.4) is always computed once over the complete file set
+        before this endpoint slices a page out of it, so results are
+        identical regardless of page size or which page is requested.
+      operationId: listReportFiles
+      parameters:
+        - $ref: '#/components/parameters/Owner'
+        - $ref: '#/components/parameters/Repo'
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+        - name: sort
+          in: query
+          description: >
+            `risk` (default) orders worst codeHealthScore first — the
+            natural "where should I look first" ordering. `path` orders
+            alphabetically by file path.
+          schema:
+            type: string
+            enum: [risk, path]
+            default: risk
+        - name: status
+          in: query
+          description: Filter to a single file status, e.g. to list only unsupported_language or error files in detail.
+          schema:
+            type: string
+            enum: [analyzed, unsupported_language, error]
+      responses:
+        '200':
+          description: One page of files
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [files, page, pageSize, totalFiles, hasMore]
+                properties:
+                  files:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/FileResult'
+                  page:
+                    type: integer
+                  pageSize:
+                    type: integer
+                  totalFiles:
+                    type: integer
+                  hasMore:
+                    type: boolean
+        '404':
+          $ref: '#/components/responses/ReportNotFound'
+
+  /health:
+    get:
+      tags: [Monitoring]
+      summary: Check that the service is up
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Service is operational
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: UP
+
+  /examples:
+    get:
+      tags: [Reports]
+      summary: List a small set of popular repos suggested for a zero-friction first analysis
+      description: >
+        Powers the landing page's clickable example repos (see spec section 2.3),
+        so a first visitor can get a result without already having a repo URL in mind.
+      operationId: getExampleRepos
+      responses:
+        '200':
+          description: A short list of suggested public repos
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    repo:
+                      type: string
+                      example: "expressjs/express"
+                    repoUrl:
+                      type: string
+                      format: uri
+                      example: "https://github.com/expressjs/express"
+
+components:
+
+  parameters:
+    JobId:
+      name: jobId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    Owner:
+      name: owner
+      in: path
+      required: true
+      schema:
+        type: string
+    Repo:
+      name: repo
+      in: path
+      required: true
+      schema:
+        type: string
+
+  responses:
+    InvalidRepoUrl:
+      description: Invalid repo URL, or not matching the allowed pattern (only https://github.com/{owner}/{repo})
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    RepoNotFoundOrPrivate:
+      description: Repository not found or private
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    RepoTooLarge:
+      description: Repository too large for the v1 limit — rejected early, before any computation
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    RateLimited:
+      description: Request limit reached (per-IP rate limiting, or GitHub API rate limit)
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+          description: Number of seconds to wait before retrying
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    QueueFull:
+      description: >
+        Rare, last-resort case: even the asynchronous worker queue is at capacity.
+        This is distinct from ordinary synchronous-concurrency saturation, which is
+        instead absorbed transparently by converting the request into an async job
+        (202) — see the /analyze description and spec section 4.3. The request is
+        rejected immediately, never held open server-side; the client retries after
+        the given delay.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+          description: Number of seconds to wait before retrying
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ChallengeRequired:
+      description: >
+        Adaptive human verification (Cloudflare Turnstile) has flagged this traffic
+        as needing an explicit challenge. The client should render the Turnstile
+        widget, obtain a token, and retry the same request with `turnstileToken` set.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ChallengeFailed:
+      description: The supplied turnstileToken was missing, invalid, or expired.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    JobNotFound:
+      description: Unknown or expired jobId
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ReportNotFound:
+      description: No cached result for this repo — an analysis must first be triggered via POST /analyze
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+
+    AnalyzeRequest:
+      type: object
+      required: [repoUrl]
+      properties:
+        repoUrl:
+          type: string
+          format: uri
+          pattern: '^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/?$'
+          description: >
+            URL of the public GitHub repository to analyze.
+            Must strictly match https://github.com/{owner}/{repo} — any other form
+            (ssh://, file://, non-GitHub domains, etc.) is rejected with a 400.
+          example: "https://github.com/spring-projects/spring-boot"
+        turnstileToken:
+          type: string
+          description: >
+            Cloudflare Turnstile verification token. Omit on a first request; only
+            required when a prior request to this endpoint returned 428 CHALLENGE_REQUIRED
+            for this client. Verified server-side against Cloudflare's siteverify API.
+
+    JobAccepted:
+      type: object
+      required: [jobId, status]
+      properties:
+        jobId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [processing]
+        estimatedSeconds:
+          type: integer
+          description: Indicative estimate of remaining processing time
+          example: 45
+
+    JobProcessing:
+      type: object
+      required: [jobId, status]
+      properties:
+        jobId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [processing]
+
+    JobFailed:
+      type: object
+      required: [jobId, status, errorCode]
+      properties:
+        jobId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [failed]
+        errorCode:
+          $ref: '#/components/schemas/AsyncFailureCode'
+
+    AsyncFailureCode:
+      type: string
+      description: >
+        Narrow subset of FailureCode that can actually occur once a job has started
+        running asynchronously (spec section 4.3: timeout or a GitHub rate limit hit
+        mid-processing). Deliberately excludes codes like CHALLENGE_REQUIRED or
+        INVALID_REPO_URL, which are only ever returned synchronously by POST /analyze
+        before a job is created — a client polling a failed job should never have to
+        handle those.
+      enum:
+        - ANALYSIS_TIMEOUT
+        - GITHUB_RATE_LIMIT_REACHED
+
+    FailureCode:
+      type: string
+      description: Shared, stable failure-reason enum used by both synchronous error responses and failed async jobs.
+      enum:
+        - INVALID_REPO_URL
+        - REPO_NOT_FOUND_OR_PRIVATE
+        - REPO_TOO_LARGE
+        - RATE_LIMITED
+        - QUEUE_FULL
+        - JOB_NOT_FOUND
+        - GITHUB_RATE_LIMIT_REACHED
+        - REPORT_NOT_FOUND
+        - CHALLENGE_REQUIRED
+        - CHALLENGE_FAILED
+        - ANALYSIS_TIMEOUT
+
+    AnalysisWindow:
+      type: object
+      description: >
+        States the concrete basis of the computation (spec section 3.11), so the client
+        can let the user judge how much signal backs the result. Always present.
+      required: [commitsAnalyzed, oldestCommitDate, newestCommitDate, distinctAuthors]
+      properties:
+        commitsAnalyzed:
+          type: integer
+          example: 500
+        oldestCommitDate:
+          type: string
+          format: date-time
+        newestCommitDate:
+          type: string
+          format: date-time
+        distinctAuthors:
+          type: integer
+          example: 12
+
+    QuadrantSummary:
+      type: object
+      description: Per-quadrant file counts, for the at-a-glance repo breakdown (spec section 3.10). Present only if relativeScoringEnabled = true.
+      properties:
+        hotspot:
+          type: integer
+        complexStable:
+          type: integer
+        frequentSimple:
+          type: integer
+        healthy:
+          type: integer
+        unanalyzed:
+          type: integer
+
+    LimitationCode:
+      type: string
+      description: >
+        Stable code identifying a non-fatal caveat on an otherwise successful result.
+        Never a sentence — consumers build their own message from this code
+        (plus fileCount, when present).
+      enum:
+        - UNSUPPORTED_LANGUAGE_FILES
+        - INSUFFICIENT_FILES_FOR_RELATIVE_SCORING
+
+    Limitation:
+      type: object
+      required: [code]
+      properties:
+        code:
+          $ref: '#/components/schemas/LimitationCode'
+        fileCount:
+          type: integer
+          description: Number of files affected. Present only for code = UNSUPPORTED_LANGUAGE_FILES.
+          example: 3
+
+    AnalysisResult:
+      type: object
+      required: [status, repo, commitSha, analyzedAt, strategy, limitations, analysisWindow, relativeScoringEnabled, files, top5]
+      properties:
+        status:
+          type: string
+          enum: [completed]
+          description: >
+            Always "completed". Present so this schema can be discriminated from
+            JobProcessing/JobFailed when returned by GET /analyze/{jobId} — irrelevant
+            when returned directly by POST /analyze or GET /report/{owner}/{repo},
+            but always present for a consistent shape across all three endpoints.
+        repo:
+          type: string
+          example: "owner/repo"
+        commitSha:
+          type: string
+          example: "a1b2c3d4e5f6"
+        analyzedAt:
+          type: string
+          format: date-time
+        strategy:
+          type: string
+          enum: [clone, api_direct, cached]
+          description: Strategy used to obtain the data (see spec section on retrieval strategy)
+        limitations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Limitation'
+          description: Non-fatal caveats on this result, if any. Empty array when there are none — never a sentence.
+        analysisWindow:
+          $ref: '#/components/schemas/AnalysisWindow'
+        relativeScoringEnabled:
+          type: boolean
+          description: >
+            False when the repo has fewer than 15 analyzable files (spec section 3.6) — in that
+            case repoHealthScore and summary are omitted entirely (not sent as null), and
+            per-file percentile/score/quadrant fields are also omitted; only raw
+            complexity/churn and the absolute complexity threshold remain meaningful.
+        repoHealthScore:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Aggregate Code Health Score across all analyzed files (spec section 3.10). Omitted when relativeScoringEnabled = false.
+          example: 78
+        summary:
+          $ref: '#/components/schemas/QuadrantSummary'
+        files:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileResult'
+          description: >
+            One entry per file considered for analysis. No size cap or pagination is
+            defined yet for v1 — an open item (spec section 6.4 / 15) to resolve
+            (truncate with a remainder count, paginate, or accept as-is) before this
+            is exercised by a very large repo.
+        top5:
+          type: array
+          items:
+            type: string
+          description: Paths of the 5 files with the highest normalized risk score. Empty if relativeScoringEnabled = false.
+
+    FileStatus:
+      type: string
+      enum: [analyzed, unsupported_language, error]
+      description: >
+        "analyzed" = metrics computed; "unsupported_language" = language not covered in v1;
+        "error" = parsing failure. A file that is not "analyzed" must never be treated
+        as "low risk" — it is displayed separately, visually distinct, and carries none
+        of the score/quadrant fields below.
+
+    Quadrant:
+      type: string
+      enum: [hotspot, complex_stable, frequent_simple, healthy]
+      description: Which combination of complexity/churn this file falls into (spec section 3.8) — tells consumers *why*, so they can present the matching explanation.
+
+    FileErrorCode:
+      type: string
+      description: Reason a file could not be parsed. Present only when status = error.
+      enum:
+        - PARSE_ERROR
+        - FILE_TOO_LARGE
+
+    FileResult:
+      type: object
+      required: [path, status]
+      properties:
+        path:
+          type: string
+          example: "src/main/java/com/example/PaymentService.java"
+        status:
+          $ref: '#/components/schemas/FileStatus'
+        complexity:
+          type: number
+          description: Raw cyclomatic complexity (PMD). Present only if status = analyzed.
+          example: 42
+        churn:
+          type: object
+          description: Present only if status = analyzed.
+          required: [commits, authors]
+          properties:
+            commits:
+              type: integer
+              example: 38
+            authors:
+              type: integer
+              example: 6
+        complexityPercentile:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Present only if status = analyzed AND relativeScoringEnabled = true.
+          example: 95
+        churnPercentile:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Present only if status = analyzed AND relativeScoringEnabled = true.
+          example: 88
+        codeHealthScore:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: >
+            100 = healthiest, 0 = most at-risk (spec section 3.7). A plain integer —
+            no letter grade is computed or transmitted. Present only if status = analyzed
+            AND relativeScoringEnabled = true.
+          example: 12
+        quadrant:
+          $ref: '#/components/schemas/Quadrant'
+        exceedsCommonComplexityThreshold:
+          type: boolean
+          description: >
+            True when raw complexity > 10, a widely cited industry rule of thumb (spec section 3.9).
+            Present only if status = analyzed. Unlike the relative-scoring fields above, this is
+            available even when relativeScoringEnabled = false, since it is an absolute, not a
+            relative, signal.
+        unsupportedLanguage:
+          type: string
+          description: >
+            Identifier of the detected language (e.g. "python", "go") — a code, not a sentence.
+            Present only when status = unsupported_language, so consumers can accurately name
+            the language.
+          example: "python"
+        errorCode:
+          $ref: '#/components/schemas/FileErrorCode'
+
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          $ref: '#/components/schemas/FailureCode'
+        message:
+          type: string
+          description: >
+            Clear, actionable technical message for logs/docs/Swagger only — never
+            intended for direct display to end users. Consumers should map `code`
+            to their own presentation of the error.
+          example: "This repo exceeds the 2000-file limit supported in v1."
