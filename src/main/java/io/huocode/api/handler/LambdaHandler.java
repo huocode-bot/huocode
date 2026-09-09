@@ -20,7 +20,7 @@ public class LambdaHandler implements RequestStreamHandler {
     try {
       handler =
           SpringBootLambdaContainerHandler.getHttpApiV2ProxyHandler(
-              io.huocode.api.HuoCodeApplication.class);
+              io.huocode.api.PojaApplication.class);
     } catch (ContainerInitializationException e) {
       throw new RuntimeException("Initialization of Spring Boot Application failed", e);
     }
