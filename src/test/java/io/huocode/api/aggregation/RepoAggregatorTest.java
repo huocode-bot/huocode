@@ -38,7 +38,18 @@ class RepoAggregatorTest {
 
   private static final AnalysisProperties PROPERTIES =
       new AnalysisProperties(
-          "", Duration.ofSeconds(5), 300, 20000, 15, 500, 10, Duration.ofSeconds(10), 1048576);
+          "",
+          Duration.ofSeconds(5),
+          300,
+          20000,
+          15,
+          500,
+          10,
+          Duration.ofSeconds(10),
+          1048576,
+          Duration.ofHours(48),
+          60,
+          Duration.ofMinutes(15));
   private static final AnalysisWindowData WINDOW =
       new AnalysisWindowData(
           16, Instant.parse("2024-01-01T00:00:00Z"), Instant.parse("2024-01-10T00:00:00Z"), 3);
@@ -163,7 +174,18 @@ class RepoAggregatorTest {
   void analyze_marks_oversized_files_as_file_too_large() throws IOException {
     AnalysisProperties smallLimits =
         new AnalysisProperties(
-            "", Duration.ofSeconds(5), 300, 20000, 15, 500, 10, Duration.ofSeconds(10), 8);
+            "",
+            Duration.ofSeconds(5),
+            300,
+            20000,
+            15,
+            500,
+            10,
+            Duration.ofSeconds(10),
+            8,
+            Duration.ofHours(48),
+            60,
+            Duration.ofMinutes(15));
     StubGitHubApiPort port = new StubGitHubApiPort(1, "abc", List.of("Big.java"));
     port.contents = Map.of("Big.java", "class Big {}\n");
     port.churns = Map.of("Big.java", new Churn(1, 1));

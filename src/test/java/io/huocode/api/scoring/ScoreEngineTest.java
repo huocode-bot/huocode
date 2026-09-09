@@ -20,7 +20,18 @@ class ScoreEngineTest {
 
   private static final AnalysisProperties PROPERTIES =
       new AnalysisProperties(
-          "", Duration.ofSeconds(5), 300, 20000, 15, 500, 10, Duration.ofSeconds(10), 1048576);
+          "",
+          Duration.ofSeconds(5),
+          300,
+          20000,
+          15,
+          500,
+          10,
+          Duration.ofSeconds(10),
+          1048576,
+          Duration.ofHours(48),
+          60,
+          Duration.ofMinutes(15));
 
   private final ScoreEngine engine = new ScoreEngine(PROPERTIES);
 

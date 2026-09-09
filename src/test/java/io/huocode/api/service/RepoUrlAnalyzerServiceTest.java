@@ -3,6 +3,7 @@ package io.huocode.api.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -70,6 +71,25 @@ class RepoUrlAnalyzerServiceTest {
     when(reportStore.findLatest(repoUrl)).thenReturn(Optional.of(stored));
 
     assertSame(stored, service.getLatestReport(repoUrl));
+  }
+
+  @Test
+  void cached_for_marks_result_cached_when_present() {
+    AnalysisResult stored = aResult(AnalysisResult.StrategyEnum.CLONE).repoHealthScore(42);
+    when(reportStore.findByRepoAndSha(repoUrl, sha)).thenReturn(Optional.of(stored));
+
+    Optional<AnalysisResult> found = service.cachedFor(repoUrl, sha);
+
+    assertSame(stored, found.orElseThrow());
+    assertEquals(AnalysisResult.StrategyEnum.CACHED, found.orElseThrow().getStrategy());
+    assertEquals(42, found.orElseThrow().getRepoHealthScore());
+  }
+
+  @Test
+  void cached_for_is_empty_when_result_absent() {
+    when(reportStore.findByRepoAndSha(repoUrl, sha)).thenReturn(Optional.empty());
+
+    assertTrue(service.cachedFor(repoUrl, sha).isEmpty());
   }
 
   @Test

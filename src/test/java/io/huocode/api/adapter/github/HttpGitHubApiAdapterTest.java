@@ -51,7 +51,10 @@ class HttpGitHubApiAdapterTest {
             500,
             10,
             Duration.ofSeconds(5),
-            1048576);
+            1048576,
+            Duration.ofHours(48),
+            60,
+            Duration.ofMinutes(15));
     String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
     adapter = new HttpGitHubApiAdapter(new GitHubApiHttp(properties, new ObjectMapper(), baseUrl));
   }
