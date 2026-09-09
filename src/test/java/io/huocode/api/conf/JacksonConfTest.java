@@ -15,8 +15,7 @@ class JacksonConfTest {
   @Test
   void nullable_fields_are_omitted_but_mandatory_ones_are_kept() throws Exception {
     ObjectMapper objectMapper = new ObjectMapper();
-    new JacksonConf()
-        .nonNullSerializationPostProcessor()
+    JacksonConf.nonNullSerializationPostProcessor()
         .postProcessAfterInitialization(objectMapper, "objectMapper");
 
     var fileResult =
