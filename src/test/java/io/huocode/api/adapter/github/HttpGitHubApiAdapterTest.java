@@ -43,7 +43,15 @@ class HttpGitHubApiAdapterTest {
     server.start();
     AnalysisProperties properties =
         new AnalysisProperties(
-            "test-token", Duration.ofSeconds(5), 300, 20000, 15, 500, 10, Duration.ofSeconds(5));
+            "test-token",
+            Duration.ofSeconds(5),
+            300,
+            20000,
+            15,
+            500,
+            10,
+            Duration.ofSeconds(5),
+            1048576);
     String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
     adapter = new HttpGitHubApiAdapter(new GitHubApiHttp(properties, new ObjectMapper(), baseUrl));
   }

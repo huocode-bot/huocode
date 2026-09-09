@@ -14,7 +14,7 @@ class RetrievalStrategySelectorTest {
   private final RetrievalStrategySelector selector =
       new RetrievalStrategySelector(
           new AnalysisProperties(
-              "", Duration.ofSeconds(5), 300, 20000, 15, 500, 10, Duration.ofSeconds(10)));
+              "", Duration.ofSeconds(5), 300, 20000, 15, 500, 10, Duration.ofSeconds(10), 1048576));
 
   @Test
   void select_uses_api_direct_below_or_at_threshold() {

@@ -19,7 +19,7 @@ class ApiDirectRetrieverTest {
   private static final RepoUrl REPO = new RepoUrl("owner", "repo");
   private static final AnalysisProperties PROPERTIES =
       new AnalysisProperties(
-          "", Duration.ofSeconds(5), 300, 20000, 15, 500, 10, Duration.ofSeconds(10));
+          "", Duration.ofSeconds(5), 300, 20000, 15, 500, 10, Duration.ofSeconds(10), 1048576);
   private static final AnalysisWindowData WINDOW =
       new AnalysisWindowData(
           10, Instant.parse("2024-01-01T00:00:00Z"), Instant.parse("2024-01-10T00:00:00Z"), 3);
