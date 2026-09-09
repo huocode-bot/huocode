@@ -25,7 +25,8 @@ class IpRateLimiterTest {
             60,
             Duration.ofMinutes(15),
             perIpAnalysisPerHour,
-            60));
+            60,
+            2));
   }
 
   @Test

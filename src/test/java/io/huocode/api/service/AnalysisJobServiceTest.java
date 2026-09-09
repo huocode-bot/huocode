@@ -11,6 +11,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.huocode.api.concurrency.ConcurrencyGuard;
 import io.huocode.api.conf.AnalysisProperties;
 import io.huocode.api.endpoint.event.EventProducer;
 import io.huocode.api.endpoint.event.model.RepoAnalysisRequested;
@@ -62,7 +63,9 @@ class AnalysisJobServiceTest {
           60,
           Duration.ofMinutes(15),
           10,
-          60);
+          60,
+          2);
+  private final ConcurrencyGuard concurrencyGuard = new ConcurrencyGuard(properties);
   private final IpRateLimiter ipRateLimiter = new IpRateLimiter(properties);
   private final AnalysisJobService service =
       new AnalysisJobService(
@@ -73,6 +76,7 @@ class AnalysisJobServiceTest {
           eventProducer,
           analysisJobMapper,
           properties,
+          concurrencyGuard,
           ipRateLimiter);
 
   private final RepoUrl repoUrl = new RepoUrl("owner", "repo");
@@ -202,7 +206,8 @@ class AnalysisJobServiceTest {
             60,
             Duration.ofMinutes(15),
             1,
-            60);
+            60,
+            2);
     AnalysisJobService throttled =
         new AnalysisJobService(
             gitHubApiPort,
@@ -212,6 +217,7 @@ class AnalysisJobServiceTest {
             eventProducer,
             analysisJobMapper,
             limited,
+            new ConcurrencyGuard(limited),
             new IpRateLimiter(limited));
 
     AnalysisResult fresh = new AnalysisResult();
@@ -222,9 +228,62 @@ class AnalysisJobServiceTest {
     when(analyzerService.analyze(repoUrl)).thenReturn(fresh);
 
     assertFalse(throttled.submit(repoUrl, "1.2.3.4").isAsync());
-    assertThrows(
-        RateLimitExceededException.class, () -> throttled.submit(repoUrl, "1.2.3.4"));
+    assertThrows(RateLimitExceededException.class, () -> throttled.submit(repoUrl, "1.2.3.4"));
     assertFalse(throttled.submit(repoUrl, "5.6.7.8").isAsync());
+  }
+
+  @Test
+  void submit_converts_sync_analysis_to_async_when_concurrency_saturated() throws Exception {
+    AnalysisProperties saturated =
+        new AnalysisProperties(
+            "",
+            Duration.ofSeconds(5),
+            300,
+            20000,
+            15,
+            10,
+            500,
+            Duration.ofSeconds(10),
+            1048576,
+            Duration.ofHours(48),
+            60,
+            Duration.ofMinutes(15),
+            10,
+            60,
+            1);
+    ConcurrencyGuard saturatedGuard = new ConcurrencyGuard(saturated);
+    saturatedGuard.tryAcquire();
+    AnalysisJobService saturatedService =
+        new AnalysisJobService(
+            gitHubApiPort,
+            analyzerService,
+            strategySelector,
+            jobStore,
+            eventProducer,
+            analysisJobMapper,
+            saturated,
+            saturatedGuard,
+            new IpRateLimiter(saturated));
+
+    JobAccepted accepted =
+        new JobAccepted()
+            .jobId(UUID.randomUUID())
+            .status(JobAccepted.StatusEnum.PROCESSING)
+            .estimatedSeconds(60);
+    when(gitHubApiPort.latestCommitSha(repoUrl)).thenReturn(sha);
+    when(analyzerService.cachedFor(repoUrl, sha)).thenReturn(Optional.empty());
+    when(gitHubApiPort.fileCount(repoUrl, sha)).thenReturn(10L);
+    when(strategySelector.select(10L)).thenReturn(RetrievalStrategy.API_DIRECT);
+    when(jobStore.findActive(repoUrl, sha)).thenReturn(Optional.empty());
+    when(analysisJobMapper.toAccepted(any(UUID.class), Mockito.eq(60))).thenReturn(accepted);
+
+    AnalysisSubmission submission = saturatedService.submit(repoUrl, "1.2.3.4");
+
+    assertTrue(submission.isAsync());
+    assertSame(accepted, submission.jobAccepted());
+    verify(analyzerService, never()).analyze(any());
+    verify(jobStore).registerActive(any(RepoAnalysisJob.class));
+    verify(eventProducer).accept(any());
   }
 
   @Test

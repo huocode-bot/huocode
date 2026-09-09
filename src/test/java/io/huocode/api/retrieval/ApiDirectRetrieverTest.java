@@ -32,7 +32,8 @@ class ApiDirectRetrieverTest {
           60,
           Duration.ofMinutes(15),
           10,
-          60);
+          60,
+          2);
   private static final AnalysisWindowData WINDOW =
       new AnalysisWindowData(
           10, Instant.parse("2024-01-01T00:00:00Z"), Instant.parse("2024-01-10T00:00:00Z"), 3);

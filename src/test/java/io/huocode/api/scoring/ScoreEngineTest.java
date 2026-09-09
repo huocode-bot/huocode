@@ -33,7 +33,8 @@ class ScoreEngineTest {
           60,
           Duration.ofMinutes(15),
           10,
-          60);
+          60,
+          2);
 
   private final ScoreEngine engine = new ScoreEngine(PROPERTIES);
 

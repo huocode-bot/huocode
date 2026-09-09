@@ -1,5 +1,6 @@
 package io.huocode.api.service;
 
+import io.huocode.api.concurrency.ConcurrencyGuard;
 import io.huocode.api.conf.AnalysisProperties;
 import io.huocode.api.endpoint.event.EventProducer;
 import io.huocode.api.endpoint.event.model.RepoAnalysisRequested;
@@ -34,6 +35,7 @@ public class AnalysisJobService {
   private final EventProducer<RepoAnalysisRequested> eventProducer;
   private final AnalysisJobMapper analysisJobMapper;
   private final AnalysisProperties properties;
+  private final ConcurrencyGuard concurrencyGuard;
   private final IpRateLimiter ipRateLimiter;
 
   public record AnalysisSubmission(AnalysisResult result, JobAccepted jobAccepted) {
@@ -64,7 +66,16 @@ public class AnalysisJobService {
     }
     RetrievalStrategy strategy = strategySelector.select(gitHubApiPort.fileCount(repoUrl, sha));
     if (strategy == RetrievalStrategy.API_DIRECT) {
-      return AnalysisSubmission.synchronous(analyzerService.analyze(repoUrl));
+      if (!concurrencyGuard.tryAcquire()) {
+        return AnalysisSubmission.asynchronous(
+            analysisJobMapper.toAccepted(
+                queueAsync(repoUrl, sha), properties.getAsyncEstimatedSeconds()));
+      }
+      try {
+        return AnalysisSubmission.synchronous(analyzerService.analyze(repoUrl));
+      } finally {
+        concurrencyGuard.release();
+      }
     }
     UUID jobId = queueAsync(repoUrl, sha);
     return AnalysisSubmission.asynchronous(
