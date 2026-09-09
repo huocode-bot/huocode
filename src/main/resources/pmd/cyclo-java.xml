@@ -1,0 +1,10 @@
+<ruleset name="huocode-cyclo"
+         xmlns="http://pmd.sourceforge.net/ruleset/2.0.0">
+  <description>Cyclomatic complexity metric collector for HuoCode Java analysis.</description>
+  <rule ref="category/java/design.xml/CyclomaticComplexity">
+    <properties>
+      <property name="classReportLevel" value="2147483647"/>
+      <property name="methodReportLevel" value="1"/>
+    </properties>
+  </rule>
+</ruleset>
