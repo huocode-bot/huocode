@@ -7,6 +7,7 @@ import io.huocode.api.endpoint.event.model.RepoAnalysisRequested;
 import io.huocode.api.endpoint.rest.model.AnalysisResult;
 import io.huocode.api.endpoint.rest.model.JobAccepted;
 import io.huocode.api.exception.JobNotFoundException;
+import io.huocode.api.exception.QueueFullException;
 import io.huocode.api.exception.RateLimitExceededException;
 import io.huocode.api.mapper.AnalysisJobMapper;
 import io.huocode.api.model.RepoAnalysisJob;
@@ -99,6 +100,10 @@ public class AnalysisJobService {
     if (active.isPresent()
         && active.get().isFreshlyStarted(properties.getAsyncProcessingWindow(), Instant.now())) {
       return active.get().getJobId();
+    }
+    if (jobStore.countActive() >= properties.getMaxInflightAsyncJobs()) {
+      throw new QueueFullException(
+          "too many analyses in flight, retry later", properties.getRetryAfterSeconds());
     }
     RepoAnalysisJob job = RepoAnalysisJob.pending(repoUrl, sha, UUID.randomUUID(), Instant.now());
     jobStore.registerActive(job);

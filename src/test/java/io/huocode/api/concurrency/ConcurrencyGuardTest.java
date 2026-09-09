@@ -26,7 +26,8 @@ class ConcurrencyGuardTest {
         Duration.ofMinutes(15),
         10,
         60,
-        maxConcurrentSyncAnalysis);
+        maxConcurrentSyncAnalysis,
+        10);
   }
 
   @Test

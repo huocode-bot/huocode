@@ -50,7 +50,8 @@ class RepoAnalysisRequestedServiceTest {
           WINDOW,
           10,
           60,
-          2);
+          2,
+          10);
   private final RepoAnalysisRequestedService service =
       new RepoAnalysisRequestedService(jobStore, analyzerService, repoUrlValidator, properties);
 

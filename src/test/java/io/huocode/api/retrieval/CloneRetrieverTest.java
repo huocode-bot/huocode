@@ -32,7 +32,8 @@ class CloneRetrieverTest {
           Duration.ofMinutes(15),
           10,
           60,
-          2);
+          2,
+          10);
 
   @TempDir Path temp;
 

@@ -31,8 +31,11 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
+import software.amazon.awssdk.services.s3.model.S3Object;
 
 class S3JobStoreTest {
 
@@ -159,6 +162,44 @@ class S3JobStoreTest {
     store.clearActive(repoUrl, sha, UUID.randomUUID());
 
     verify(s3Client, never()).deleteObject(any(DeleteObjectRequest.class));
+  }
+
+  @Test
+  void count_active_lists_all_active_pointer_objects() {
+    when(s3Client.listObjectsV2(any(ListObjectsV2Request.class)))
+        .thenReturn(
+            ListObjectsV2Response.builder()
+                .contents(
+                    S3Object.builder().key("jobs/active/a/b/c.json").build(),
+                    S3Object.builder().key("jobs/active/d/e/f.json").build())
+                .isTruncated(false)
+                .build());
+
+    assertEquals(2L, store.countActive());
+
+    ArgumentCaptor<ListObjectsV2Request> request =
+        ArgumentCaptor.forClass(ListObjectsV2Request.class);
+    verify(s3Client).listObjectsV2(request.capture());
+    assertEquals("jobs/active/", request.getValue().prefix());
+    assertEquals(BUCKET, request.getValue().bucket());
+  }
+
+  @Test
+  void count_active_follows_truncation_token() {
+    when(s3Client.listObjectsV2(any(ListObjectsV2Request.class)))
+        .thenReturn(
+            ListObjectsV2Response.builder()
+                .contents(S3Object.builder().key("jobs/active/a/b/c.json").build())
+                .isTruncated(true)
+                .nextContinuationToken("next")
+                .build())
+        .thenReturn(
+            ListObjectsV2Response.builder()
+                .contents(S3Object.builder().key("jobs/active/d/e/f.json").build())
+                .isTruncated(false)
+                .build());
+
+    assertEquals(2L, store.countActive());
   }
 
   @Test

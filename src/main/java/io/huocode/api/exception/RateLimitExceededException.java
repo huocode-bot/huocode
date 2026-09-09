@@ -10,10 +10,6 @@ public class RateLimitExceededException extends ApiException {
   }
 
   public RateLimitExceededException(String message, int retryAfterSeconds) {
-    super(
-        FailureCode.RATE_LIMITED,
-        HttpStatus.TOO_MANY_REQUESTS,
-        message,
-        retryAfterSeconds);
+    super(FailureCode.RATE_LIMITED, HttpStatus.TOO_MANY_REQUESTS, message, retryAfterSeconds);
   }
 }

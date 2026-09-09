@@ -19,6 +19,7 @@ import io.huocode.api.endpoint.rest.model.JobAccepted;
 import io.huocode.api.endpoint.rest.model.JobFailed;
 import io.huocode.api.endpoint.rest.model.JobProcessing;
 import io.huocode.api.exception.JobNotFoundException;
+import io.huocode.api.exception.QueueFullException;
 import io.huocode.api.exception.RateLimitExceededException;
 import io.huocode.api.exception.RepoNotFoundException;
 import io.huocode.api.exception.RepoTooLargeException;
@@ -110,7 +111,8 @@ class AnalysisControllerTest {
   @Test
   void analyze_maps_missing_repo_to_404() throws Exception {
     when(requestValidator.validate(any())).thenReturn(repoUrl);
-    when(analysisJobService.submit(eq(repoUrl), anyString())).thenThrow(new RepoNotFoundException("repo not found"));
+    when(analysisJobService.submit(eq(repoUrl), anyString()))
+        .thenThrow(new RepoNotFoundException("repo not found"));
     stubErrorMapping();
 
     mockMvc
@@ -153,6 +155,23 @@ class AnalysisControllerTest {
         .andExpect(status().isTooManyRequests())
         .andExpect(header().string(HttpHeaders.RETRY_AFTER, "60"))
         .andExpect(jsonPath("$.code").value("RATE_LIMITED"));
+  }
+
+  @Test
+  void analyze_maps_queue_full_to_503_with_retry_after() throws Exception {
+    when(requestValidator.validate(any())).thenReturn(repoUrl);
+    when(analysisJobService.submit(eq(repoUrl), anyString()))
+        .thenThrow(new QueueFullException("worker queue saturated", 60));
+    stubErrorMapping();
+
+    mockMvc
+        .perform(
+            post("/analyze")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"repoUrl\":\"https://github.com/owner/repo\"}"))
+        .andExpect(status().isServiceUnavailable())
+        .andExpect(header().string(HttpHeaders.RETRY_AFTER, "60"))
+        .andExpect(jsonPath("$.code").value("QUEUE_FULL"));
   }
 
   @Test

@@ -24,6 +24,7 @@ public class AnalysisProperties {
   private final int perIpAnalysisPerHour;
   private final int retryAfterSeconds;
   private final int maxConcurrentSyncAnalysis;
+  private final int maxInflightAsyncJobs;
 
   public AnalysisProperties(
       @Value("${GITHUB_TOKEN:}") String githubToken,
@@ -41,7 +42,8 @@ public class AnalysisProperties {
       @Value("${huocode.async-processing-window:PT15M}") Duration asyncProcessingWindow,
       @Value("${huocode.per-ip-analysis-per-hour:10}") int perIpAnalysisPerHour,
       @Value("${huocode.retry-after-seconds:60}") int retryAfterSeconds,
-      @Value("${huocode.max-concurrent-sync-analysis:2}") int maxConcurrentSyncAnalysis) {
+      @Value("${huocode.max-concurrent-sync-analysis:2}") int maxConcurrentSyncAnalysis,
+      @Value("${huocode.max-inflight-async-jobs:10}") int maxInflightAsyncJobs) {
     this.githubToken = githubToken;
     this.githubRequestTimeout = githubRequestTimeout;
     this.apiDirectFileThreshold = apiDirectFileThreshold;
@@ -57,5 +59,6 @@ public class AnalysisProperties {
     this.perIpAnalysisPerHour = perIpAnalysisPerHour;
     this.retryAfterSeconds = retryAfterSeconds;
     this.maxConcurrentSyncAnalysis = maxConcurrentSyncAnalysis;
+    this.maxInflightAsyncJobs = maxInflightAsyncJobs;
   }
 }

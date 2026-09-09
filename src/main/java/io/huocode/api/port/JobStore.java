@@ -7,6 +7,8 @@ import java.util.UUID;
 
 public interface JobStore {
 
+  long countActive();
+
   Optional<RepoAnalysisJob> findById(UUID jobId);
 
   Optional<RepoAnalysisJob> findActive(RepoUrl repoUrl, String commitSha);

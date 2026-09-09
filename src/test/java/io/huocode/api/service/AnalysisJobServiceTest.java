@@ -19,6 +19,7 @@ import io.huocode.api.endpoint.rest.model.AnalysisResult;
 import io.huocode.api.endpoint.rest.model.JobAccepted;
 import io.huocode.api.endpoint.rest.model.JobProcessing;
 import io.huocode.api.exception.JobNotFoundException;
+import io.huocode.api.exception.QueueFullException;
 import io.huocode.api.exception.RateLimitExceededException;
 import io.huocode.api.exception.RepoTooLargeException;
 import io.huocode.api.mapper.AnalysisJobMapper;
@@ -64,7 +65,8 @@ class AnalysisJobServiceTest {
           Duration.ofMinutes(15),
           10,
           60,
-          2);
+          2,
+          10);
   private final ConcurrencyGuard concurrencyGuard = new ConcurrencyGuard(properties);
   private final IpRateLimiter ipRateLimiter = new IpRateLimiter(properties);
   private final AnalysisJobService service =
@@ -207,7 +209,8 @@ class AnalysisJobServiceTest {
             Duration.ofMinutes(15),
             1,
             60,
-            2);
+            2,
+            10);
     AnalysisJobService throttled =
         new AnalysisJobService(
             gitHubApiPort,
@@ -250,7 +253,8 @@ class AnalysisJobServiceTest {
             Duration.ofMinutes(15),
             10,
             60,
-            1);
+            1,
+            10);
     ConcurrencyGuard saturatedGuard = new ConcurrencyGuard(saturated);
     saturatedGuard.tryAcquire();
     AnalysisJobService saturatedService =
@@ -277,13 +281,57 @@ class AnalysisJobServiceTest {
     when(jobStore.findActive(repoUrl, sha)).thenReturn(Optional.empty());
     when(analysisJobMapper.toAccepted(any(UUID.class), Mockito.eq(60))).thenReturn(accepted);
 
-    AnalysisSubmission submission = saturatedService.submit(repoUrl, "1.2.3.4");
+    AnalysisJobService.AnalysisSubmission submission = saturatedService.submit(repoUrl, "1.2.3.4");
 
     assertTrue(submission.isAsync());
     assertSame(accepted, submission.jobAccepted());
     verify(analyzerService, never()).analyze(any());
     verify(jobStore).registerActive(any(RepoAnalysisJob.class));
     verify(eventProducer).accept(any());
+  }
+
+  @Test
+  void submit_rejects_with_queue_full_when_async_in_flight_at_capacity() throws Exception {
+    AnalysisProperties saturated =
+        new AnalysisProperties(
+            "",
+            Duration.ofSeconds(5),
+            300,
+            20000,
+            15,
+            10,
+            500,
+            Duration.ofSeconds(10),
+            1048576,
+            Duration.ofHours(48),
+            60,
+            Duration.ofMinutes(15),
+            10,
+            60,
+            2,
+            0);
+    AnalysisJobService saturatedService =
+        new AnalysisJobService(
+            gitHubApiPort,
+            analyzerService,
+            strategySelector,
+            jobStore,
+            eventProducer,
+            analysisJobMapper,
+            saturated,
+            new ConcurrencyGuard(saturated),
+            new IpRateLimiter(saturated));
+
+    when(gitHubApiPort.latestCommitSha(repoUrl)).thenReturn(sha);
+    when(analyzerService.cachedFor(repoUrl, sha)).thenReturn(Optional.empty());
+    when(gitHubApiPort.fileCount(repoUrl, sha)).thenReturn(1000L);
+    when(strategySelector.select(1000L)).thenReturn(RetrievalStrategy.CLONE);
+    when(jobStore.findActive(repoUrl, sha)).thenReturn(Optional.empty());
+    when(jobStore.countActive()).thenReturn(0L);
+
+    assertThrows(QueueFullException.class, () -> saturatedService.submit(repoUrl, "1.2.3.4"));
+    verify(jobStore, never()).registerActive(any(RepoAnalysisJob.class));
+    verify(eventProducer, never()).accept(any());
   }
 
   @Test

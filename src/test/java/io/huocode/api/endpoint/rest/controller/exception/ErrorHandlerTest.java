@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
 import io.huocode.api.endpoint.rest.model.FailureCode;
+import io.huocode.api.exception.QueueFullException;
 import io.huocode.api.exception.RateLimitExceededException;
 import io.huocode.api.exception.RepoUrlValidationException;
 import io.huocode.api.mapper.ErrorResponseMapperImpl;
@@ -26,9 +27,15 @@ class ErrorHandlerTest {
 
   @Test
   void rate_limited_exception_carries_retry_after_header() {
-    var response =
-        errorHandler.handleApiException(new RateLimitExceededException("slow down", 60));
+    var response = errorHandler.handleApiException(new RateLimitExceededException("slow down", 60));
     assertSame(HttpStatus.TOO_MANY_REQUESTS, response.getStatusCode());
+    assertEquals("60", response.getHeaders().getFirst(HttpHeaders.RETRY_AFTER));
+  }
+
+  @Test
+  void queue_full_exception_carries_retry_after_header() {
+    var response = errorHandler.handleApiException(new QueueFullException("worker saturated", 60));
+    assertSame(HttpStatus.SERVICE_UNAVAILABLE, response.getStatusCode());
     assertEquals("60", response.getHeaders().getFirst(HttpHeaders.RETRY_AFTER));
   }
 

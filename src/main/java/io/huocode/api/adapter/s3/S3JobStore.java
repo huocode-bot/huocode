@@ -17,6 +17,8 @@ import software.amazon.awssdk.core.sync.ResponseTransformer;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
@@ -27,6 +29,7 @@ public class S3JobStore implements JobStore {
 
   private static final String JOB_KEY = "jobs/%s.json";
   private static final String ACTIVE_KEY = "jobs/active/%s/%s/%s.json";
+  private static final String ACTIVE_PREFIX = "jobs/active/";
 
   private final BucketConf bucketConf;
   private final ObjectMapper objectMapper;
@@ -40,6 +43,23 @@ public class S3JobStore implements JobStore {
   public Optional<RepoAnalysisJob> findActive(RepoUrl repoUrl, String commitSha) {
     Optional<ActiveJobRef> ref = find(activeKey(repoUrl, commitSha), ActiveJobRef.class);
     return ref.map(activeJobRef -> activeJobRef.getJobId()).flatMap(this::findById);
+  }
+
+  @Override
+  public long countActive() {
+    long count = 0;
+    String continuationToken = null;
+    do {
+      ListObjectsV2Request.Builder request =
+          ListObjectsV2Request.builder().bucket(bucketConf.getBucketName()).prefix(ACTIVE_PREFIX);
+      if (continuationToken != null) {
+        request.continuationToken(continuationToken);
+      }
+      ListObjectsV2Response response = bucketConf.getS3Client().listObjectsV2(request.build());
+      count += response.contents().size();
+      continuationToken = response.isTruncated() ? response.nextContinuationToken() : null;
+    } while (continuationToken != null);
+    return count;
   }
 
   @Override

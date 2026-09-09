@@ -52,7 +52,8 @@ class RepoAggregatorTest {
           Duration.ofMinutes(15),
           10,
           60,
-          2);
+          2,
+          10);
   private static final AnalysisWindowData WINDOW =
       new AnalysisWindowData(
           16, Instant.parse("2024-01-01T00:00:00Z"), Instant.parse("2024-01-10T00:00:00Z"), 3);
@@ -191,7 +192,8 @@ class RepoAggregatorTest {
             Duration.ofMinutes(15),
             10,
             60,
-            2);
+            2,
+            10);
     StubGitHubApiPort port = new StubGitHubApiPort(1, "abc", List.of("Big.java"));
     port.contents = Map.of("Big.java", "class Big {}\n");
     port.churns = Map.of("Big.java", new Churn(1, 1));
