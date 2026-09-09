@@ -198,6 +198,10 @@ dependencies {
     testImplementation 'org.testcontainers:testcontainers-junit-jupiter:2.0.2'
     testImplementation 'org.junit-pioneer:junit-pioneer:2.2.0'
 
+implementation 'net.sourceforge.pmd:pmd-java:7.27.0'
+implementation 'org.mapstruct:mapstruct:1.6.3'
+annotationProcessor 'org.mapstruct:mapstruct-processor:1.6.3'
+annotationProcessor 'org.projectlombok:lombok-mapstruct-binding:0.2.0'
 implementation 'io.huocode:huocode-f72de8a7-gen:latest'
 
 implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.5.0'
