@@ -16,6 +16,7 @@ public class AnalysisProperties {
   private final int minFilesForRelativeScoring;
   private final int commitWindow;
   private final int exceedsCommonComplexityThreshold;
+  private final Duration gitCommandTimeout;
 
   public AnalysisProperties(
       @Value("${GITHUB_TOKEN:}") String githubToken,
@@ -25,7 +26,8 @@ public class AnalysisProperties {
       @Value("${huocode.min-files-for-relative-scoring:15}") int minFilesForRelativeScoring,
       @Value("${huocode.commit-window:500}") int commitWindow,
       @Value("${huocode.exceeds-common-complexity-threshold:10}")
-          int exceedsCommonComplexityThreshold) {
+          int exceedsCommonComplexityThreshold,
+      @Value("${huocode.git-command-timeout:PT5M}") Duration gitCommandTimeout) {
     this.githubToken = githubToken;
     this.githubRequestTimeout = githubRequestTimeout;
     this.apiDirectFileThreshold = apiDirectFileThreshold;
@@ -33,5 +35,6 @@ public class AnalysisProperties {
     this.minFilesForRelativeScoring = minFilesForRelativeScoring;
     this.commitWindow = commitWindow;
     this.exceedsCommonComplexityThreshold = exceedsCommonComplexityThreshold;
+    this.gitCommandTimeout = gitCommandTimeout;
   }
 }
