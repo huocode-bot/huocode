@@ -18,6 +18,7 @@ import io.huocode.api.endpoint.rest.model.AnalysisResult;
 import io.huocode.api.endpoint.rest.model.JobAccepted;
 import io.huocode.api.endpoint.rest.model.JobProcessing;
 import io.huocode.api.exception.JobNotFoundException;
+import io.huocode.api.exception.RateLimitExceededException;
 import io.huocode.api.exception.RepoTooLargeException;
 import io.huocode.api.mapper.AnalysisJobMapper;
 import io.huocode.api.model.RepoAnalysisJob;
@@ -25,6 +26,7 @@ import io.huocode.api.model.RepoUrl;
 import io.huocode.api.model.RetrievalStrategy;
 import io.huocode.api.port.GitHubApiPort;
 import io.huocode.api.port.JobStore;
+import io.huocode.api.ratelimit.IpRateLimiter;
 import io.huocode.api.retrieval.RetrievalStrategySelector;
 import java.time.Duration;
 import java.time.Instant;
@@ -58,7 +60,10 @@ class AnalysisJobServiceTest {
           1048576,
           Duration.ofHours(48),
           60,
-          Duration.ofMinutes(15));
+          Duration.ofMinutes(15),
+          10,
+          60);
+  private final IpRateLimiter ipRateLimiter = new IpRateLimiter(properties);
   private final AnalysisJobService service =
       new AnalysisJobService(
           gitHubApiPort,
@@ -67,7 +72,8 @@ class AnalysisJobServiceTest {
           jobStore,
           eventProducer,
           analysisJobMapper,
-          properties);
+          properties,
+          ipRateLimiter);
 
   private final RepoUrl repoUrl = new RepoUrl("owner", "repo");
   private final String sha = "abc123";
@@ -78,7 +84,7 @@ class AnalysisJobServiceTest {
     when(gitHubApiPort.latestCommitSha(repoUrl)).thenReturn(sha);
     when(analyzerService.cachedFor(repoUrl, sha)).thenReturn(Optional.of(cached));
 
-    AnalysisJobService.AnalysisSubmission submission = service.submit(repoUrl);
+    AnalysisJobService.AnalysisSubmission submission = service.submit(repoUrl, "1.2.3.4");
 
     assertFalse(submission.isAsync());
     assertSame(cached, submission.result());
@@ -97,7 +103,7 @@ class AnalysisJobServiceTest {
     when(strategySelector.select(10L)).thenReturn(RetrievalStrategy.API_DIRECT);
     when(analyzerService.analyze(repoUrl)).thenReturn(fresh);
 
-    AnalysisJobService.AnalysisSubmission submission = service.submit(repoUrl);
+    AnalysisJobService.AnalysisSubmission submission = service.submit(repoUrl, "1.2.3.4");
 
     assertFalse(submission.isAsync());
     assertSame(fresh, submission.result());
@@ -119,7 +125,7 @@ class AnalysisJobServiceTest {
     when(jobStore.findActive(repoUrl, sha)).thenReturn(Optional.empty());
     when(analysisJobMapper.toAccepted(any(UUID.class), Mockito.eq(60))).thenReturn(accepted);
 
-    AnalysisJobService.AnalysisSubmission submission = service.submit(repoUrl);
+    AnalysisJobService.AnalysisSubmission submission = service.submit(repoUrl, "1.2.3.4");
 
     assertTrue(submission.isAsync());
     assertSame(accepted, submission.jobAccepted());
@@ -158,7 +164,7 @@ class AnalysisJobServiceTest {
                 .status(JobAccepted.StatusEnum.PROCESSING)
                 .estimatedSeconds(60));
 
-    AnalysisJobService.AnalysisSubmission submission = service.submit(repoUrl);
+    AnalysisJobService.AnalysisSubmission submission = service.submit(repoUrl, "1.2.3.4");
 
     assertTrue(submission.isAsync());
     assertEquals(inFlightId, submission.jobAccepted().getJobId());
@@ -174,9 +180,51 @@ class AnalysisJobServiceTest {
     when(strategySelector.select(30000L))
         .thenThrow(new RepoTooLargeException("repo has too many files"));
 
-    assertThrows(RepoTooLargeException.class, () -> service.submit(repoUrl));
+    assertThrows(RepoTooLargeException.class, () -> service.submit(repoUrl, "1.2.3.4"));
     verify(jobStore, never()).registerActive(any());
     verify(eventProducer, never()).accept(any());
+  }
+
+  @Test
+  void submit_rate_limits_triggered_analyses_per_ip() throws Exception {
+    AnalysisProperties limited =
+        new AnalysisProperties(
+            "",
+            Duration.ofSeconds(5),
+            300,
+            20000,
+            15,
+            10,
+            500,
+            Duration.ofSeconds(10),
+            1048576,
+            Duration.ofHours(48),
+            60,
+            Duration.ofMinutes(15),
+            1,
+            60);
+    AnalysisJobService throttled =
+        new AnalysisJobService(
+            gitHubApiPort,
+            analyzerService,
+            strategySelector,
+            jobStore,
+            eventProducer,
+            analysisJobMapper,
+            limited,
+            new IpRateLimiter(limited));
+
+    AnalysisResult fresh = new AnalysisResult();
+    when(gitHubApiPort.latestCommitSha(repoUrl)).thenReturn(sha);
+    when(analyzerService.cachedFor(repoUrl, sha)).thenReturn(Optional.empty());
+    when(gitHubApiPort.fileCount(repoUrl, sha)).thenReturn(10L);
+    when(strategySelector.select(10L)).thenReturn(RetrievalStrategy.API_DIRECT);
+    when(analyzerService.analyze(repoUrl)).thenReturn(fresh);
+
+    assertFalse(throttled.submit(repoUrl, "1.2.3.4").isAsync());
+    assertThrows(
+        RateLimitExceededException.class, () -> throttled.submit(repoUrl, "1.2.3.4"));
+    assertFalse(throttled.submit(repoUrl, "5.6.7.8").isAsync());
   }
 
   @Test

@@ -5,9 +5,11 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
 import io.huocode.api.endpoint.rest.model.FailureCode;
+import io.huocode.api.exception.RateLimitExceededException;
 import io.huocode.api.exception.RepoUrlValidationException;
 import io.huocode.api.mapper.ErrorResponseMapperImpl;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 
 class ErrorHandlerTest {
@@ -20,6 +22,20 @@ class ErrorHandlerTest {
     assertSame(HttpStatus.BAD_REQUEST, response.getStatusCode());
     assertSame(FailureCode.INVALID_REPO_URL, response.getBody().getCode());
     assertEquals("bad url", response.getBody().getMessage());
+  }
+
+  @Test
+  void rate_limited_exception_carries_retry_after_header() {
+    var response =
+        errorHandler.handleApiException(new RateLimitExceededException("slow down", 60));
+    assertSame(HttpStatus.TOO_MANY_REQUESTS, response.getStatusCode());
+    assertEquals("60", response.getHeaders().getFirst(HttpHeaders.RETRY_AFTER));
+  }
+
+  @Test
+  void api_exception_without_retry_after_has_no_retry_after_header() {
+    var response = errorHandler.handleApiException(new RepoUrlValidationException("bad url"));
+    assertNull(response.getHeaders().getFirst(HttpHeaders.RETRY_AFTER));
   }
 
   @Test

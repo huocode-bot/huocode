@@ -47,7 +47,9 @@ class RepoAnalysisRequestedServiceTest {
           1048576,
           Duration.ofHours(48),
           60,
-          WINDOW);
+          WINDOW,
+          10,
+          60);
   private final RepoAnalysisRequestedService service =
       new RepoAnalysisRequestedService(jobStore, analyzerService, repoUrlValidator, properties);
 

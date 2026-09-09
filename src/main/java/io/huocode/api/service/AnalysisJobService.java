@@ -6,12 +6,14 @@ import io.huocode.api.endpoint.event.model.RepoAnalysisRequested;
 import io.huocode.api.endpoint.rest.model.AnalysisResult;
 import io.huocode.api.endpoint.rest.model.JobAccepted;
 import io.huocode.api.exception.JobNotFoundException;
+import io.huocode.api.exception.RateLimitExceededException;
 import io.huocode.api.mapper.AnalysisJobMapper;
 import io.huocode.api.model.RepoAnalysisJob;
 import io.huocode.api.model.RepoUrl;
 import io.huocode.api.model.RetrievalStrategy;
 import io.huocode.api.port.GitHubApiPort;
 import io.huocode.api.port.JobStore;
+import io.huocode.api.ratelimit.IpRateLimiter;
 import io.huocode.api.retrieval.RetrievalStrategySelector;
 import java.io.IOException;
 import java.time.Instant;
@@ -32,6 +34,7 @@ public class AnalysisJobService {
   private final EventProducer<RepoAnalysisRequested> eventProducer;
   private final AnalysisJobMapper analysisJobMapper;
   private final AnalysisProperties properties;
+  private final IpRateLimiter ipRateLimiter;
 
   public record AnalysisSubmission(AnalysisResult result, JobAccepted jobAccepted) {
 
@@ -48,11 +51,16 @@ public class AnalysisJobService {
     }
   }
 
-  public AnalysisSubmission submit(RepoUrl repoUrl) throws IOException {
+  public AnalysisSubmission submit(RepoUrl repoUrl, String clientIp) throws IOException {
     String sha = gitHubApiPort.latestCommitSha(repoUrl);
     AnalysisResult cached = analyzerService.cachedFor(repoUrl, sha).orElse(null);
     if (cached != null) {
       return AnalysisSubmission.synchronous(cached);
+    }
+    if (!ipRateLimiter.tryAcquire(clientIp)) {
+      throw new RateLimitExceededException(
+          "too many analyses triggered from this client, retry later",
+          properties.getRetryAfterSeconds());
     }
     RetrievalStrategy strategy = strategySelector.select(gitHubApiPort.fileCount(repoUrl, sha));
     if (strategy == RetrievalStrategy.API_DIRECT) {

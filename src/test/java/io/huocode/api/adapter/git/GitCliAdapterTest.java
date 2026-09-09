@@ -32,7 +32,9 @@ class GitCliAdapterTest {
           1048576,
           Duration.ofHours(48),
           60,
-          Duration.ofMinutes(15));
+          Duration.ofMinutes(15),
+          10,
+          60);
 
   @TempDir Path temp;
 

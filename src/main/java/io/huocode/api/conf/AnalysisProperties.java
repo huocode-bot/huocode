@@ -21,6 +21,8 @@ public class AnalysisProperties {
   private final Duration jobTtl;
   private final int asyncEstimatedSeconds;
   private final Duration asyncProcessingWindow;
+  private final int perIpAnalysisPerHour;
+  private final int retryAfterSeconds;
 
   public AnalysisProperties(
       @Value("${GITHUB_TOKEN:}") String githubToken,
@@ -35,7 +37,9 @@ public class AnalysisProperties {
       @Value("${huocode.max-file-size-bytes:1048576}") long maxFileSizeBytes,
       @Value("${huocode.job-ttl:PT48H}") Duration jobTtl,
       @Value("${huocode.async-estimated-seconds:60}") int asyncEstimatedSeconds,
-      @Value("${huocode.async-processing-window:PT15M}") Duration asyncProcessingWindow) {
+      @Value("${huocode.async-processing-window:PT15M}") Duration asyncProcessingWindow,
+      @Value("${huocode.per-ip-analysis-per-hour:10}") int perIpAnalysisPerHour,
+      @Value("${huocode.retry-after-seconds:60}") int retryAfterSeconds) {
     this.githubToken = githubToken;
     this.githubRequestTimeout = githubRequestTimeout;
     this.apiDirectFileThreshold = apiDirectFileThreshold;
@@ -48,5 +52,7 @@ public class AnalysisProperties {
     this.jobTtl = jobTtl;
     this.asyncEstimatedSeconds = asyncEstimatedSeconds;
     this.asyncProcessingWindow = asyncProcessingWindow;
+    this.perIpAnalysisPerHour = perIpAnalysisPerHour;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }

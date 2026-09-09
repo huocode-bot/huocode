@@ -25,7 +25,9 @@ class RetrievalStrategySelectorTest {
               1048576,
               Duration.ofHours(48),
               60,
-              Duration.ofMinutes(15)));
+              Duration.ofMinutes(15),
+              10,
+              60));
 
   @Test
   void select_uses_api_direct_below_or_at_threshold() {
