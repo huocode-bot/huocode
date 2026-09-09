@@ -34,6 +34,7 @@ public class GitCliAdapter implements GitScmPort {
     try {
       run(parent, cloneArgs(repoUrl, targetDirectory));
       run(targetDirectory, NO_QUOTE, QUOTE_PATH_OFF, "read-tree", "HEAD");
+      run(targetDirectory, NO_QUOTE, QUOTE_PATH_OFF, "checkout-index", "-a");
     } catch (GitCommandFailedException e) {
       ensureCloneable(repoUrl, e);
     }

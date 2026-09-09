@@ -17,6 +17,7 @@ public class AnalysisProperties {
   private final int commitWindow;
   private final int exceedsCommonComplexityThreshold;
   private final Duration gitCommandTimeout;
+  private final long maxFileSizeBytes;
 
   public AnalysisProperties(
       @Value("${GITHUB_TOKEN:}") String githubToken,
@@ -27,7 +28,8 @@ public class AnalysisProperties {
       @Value("${huocode.commit-window:500}") int commitWindow,
       @Value("${huocode.exceeds-common-complexity-threshold:10}")
           int exceedsCommonComplexityThreshold,
-      @Value("${huocode.git-command-timeout:PT5M}") Duration gitCommandTimeout) {
+      @Value("${huocode.git-command-timeout:PT5M}") Duration gitCommandTimeout,
+      @Value("${huocode.max-file-size-bytes:1048576}") long maxFileSizeBytes) {
     this.githubToken = githubToken;
     this.githubRequestTimeout = githubRequestTimeout;
     this.apiDirectFileThreshold = apiDirectFileThreshold;
@@ -36,5 +38,6 @@ public class AnalysisProperties {
     this.commitWindow = commitWindow;
     this.exceedsCommonComplexityThreshold = exceedsCommonComplexityThreshold;
     this.gitCommandTimeout = gitCommandTimeout;
+    this.maxFileSizeBytes = maxFileSizeBytes;
   }
 }

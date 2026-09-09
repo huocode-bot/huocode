@@ -1,6 +1,7 @@
 package io.huocode.api.adapter.git;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.huocode.api.TestGitRepos;
 import io.huocode.api.conf.AnalysisProperties;
@@ -20,7 +21,7 @@ class GitCliAdapterTest {
 
   private static final AnalysisProperties PROPERTIES =
       new AnalysisProperties(
-          "", Duration.ofSeconds(5), 300, 20000, 15, 500, 10, Duration.ofSeconds(10));
+          "", Duration.ofSeconds(5), 300, 20000, 15, 500, 10, Duration.ofSeconds(10), 1048576);
 
   @TempDir Path temp;
 
@@ -46,6 +47,8 @@ class GitCliAdapterTest {
     Path cloneDir = fileAdapter.clone(new RepoUrl("owner", "repo"), target.resolve("clone"));
 
     assertEquals(List.of("README.md", "src/A.java"), fileAdapter.trackedFiles(cloneDir));
+    assertTrue(Files.exists(cloneDir.resolve("src/A.java")));
+    assertTrue(Files.exists(cloneDir.resolve("README.md")));
 
     RepoChurn churn = fileAdapter.logNumstat(cloneDir);
     assertEquals(2, churn.window().commitsAnalyzed());

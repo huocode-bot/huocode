@@ -18,7 +18,7 @@ class CloneRetrieverTest {
 
   private static final AnalysisProperties PROPERTIES =
       new AnalysisProperties(
-          "", Duration.ofSeconds(5), 300, 20000, 15, 500, 10, Duration.ofSeconds(10));
+          "", Duration.ofSeconds(5), 300, 20000, 15, 500, 10, Duration.ofSeconds(10), 1048576);
 
   @TempDir Path temp;
 
@@ -33,7 +33,8 @@ class CloneRetrieverTest {
     TestGitRepos.commit(source, "second commit");
 
     CloneRetriever retriever = new CloneRetriever(new FileUrlGitCliAdapter(PROPERTIES, source));
-    CloneRetrieverData data = retriever.retrieve(new RepoUrl("owner", "repo"));
+    CloneRetrieverData data =
+        retriever.retrieve(new RepoUrl("owner", "repo"), temp.resolve("work"));
 
     assertEquals(40, data.sha().length());
     assertEquals(List.of("A.java", "B.java"), data.files());
