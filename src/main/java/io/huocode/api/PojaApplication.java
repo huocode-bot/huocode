@@ -5,9 +5,9 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
 @PojaGenerated
-public class HuoCodeApplication {
+public class PojaApplication {
 
   public static void main(String[] args) {
-    SpringApplication.run(HuoCodeApplication.class, args);
+    SpringApplication.run(PojaApplication.class, args);
   }
 }
