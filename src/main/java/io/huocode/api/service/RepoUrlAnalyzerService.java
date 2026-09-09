@@ -7,6 +7,7 @@ import io.huocode.api.model.RepoUrl;
 import io.huocode.api.port.GitHubApiPort;
 import io.huocode.api.port.ReportStore;
 import java.io.IOException;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -20,13 +21,19 @@ public class RepoUrlAnalyzerService {
 
   public AnalysisResult analyze(RepoUrl repoUrl) throws IOException {
     String sha = gitHubApiPort.latestCommitSha(repoUrl);
-    AnalysisResult cached = reportStore.findByRepoAndSha(repoUrl, sha).orElse(null);
+    AnalysisResult cached = cachedFor(repoUrl, sha).orElse(null);
     if (cached != null) {
-      return cached.strategy(AnalysisResult.StrategyEnum.CACHED);
+      return cached;
     }
     AnalysisResult result = repoAggregator.analyze(repoUrl);
     reportStore.save(repoUrl, sha, result);
     return result;
+  }
+
+  public Optional<AnalysisResult> cachedFor(RepoUrl repoUrl, String sha) {
+    return reportStore
+        .findByRepoAndSha(repoUrl, sha)
+        .map(result -> result.strategy(AnalysisResult.StrategyEnum.CACHED));
   }
 
   public AnalysisResult getLatestReport(RepoUrl repoUrl) {

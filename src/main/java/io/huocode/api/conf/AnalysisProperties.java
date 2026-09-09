@@ -18,6 +18,9 @@ public class AnalysisProperties {
   private final int exceedsCommonComplexityThreshold;
   private final Duration gitCommandTimeout;
   private final long maxFileSizeBytes;
+  private final Duration jobTtl;
+  private final int asyncEstimatedSeconds;
+  private final Duration asyncProcessingWindow;
 
   public AnalysisProperties(
       @Value("${GITHUB_TOKEN:}") String githubToken,
@@ -29,7 +32,10 @@ public class AnalysisProperties {
       @Value("${huocode.exceeds-common-complexity-threshold:10}")
           int exceedsCommonComplexityThreshold,
       @Value("${huocode.git-command-timeout:PT5M}") Duration gitCommandTimeout,
-      @Value("${huocode.max-file-size-bytes:1048576}") long maxFileSizeBytes) {
+      @Value("${huocode.max-file-size-bytes:1048576}") long maxFileSizeBytes,
+      @Value("${huocode.job-ttl:PT48H}") Duration jobTtl,
+      @Value("${huocode.async-estimated-seconds:60}") int asyncEstimatedSeconds,
+      @Value("${huocode.async-processing-window:PT15M}") Duration asyncProcessingWindow) {
     this.githubToken = githubToken;
     this.githubRequestTimeout = githubRequestTimeout;
     this.apiDirectFileThreshold = apiDirectFileThreshold;
@@ -39,5 +45,8 @@ public class AnalysisProperties {
     this.exceedsCommonComplexityThreshold = exceedsCommonComplexityThreshold;
     this.gitCommandTimeout = gitCommandTimeout;
     this.maxFileSizeBytes = maxFileSizeBytes;
+    this.jobTtl = jobTtl;
+    this.asyncEstimatedSeconds = asyncEstimatedSeconds;
+    this.asyncProcessingWindow = asyncProcessingWindow;
   }
 }
