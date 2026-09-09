@@ -1,55 +1,36 @@
 package io.huocode.api.adapter.github;
 
+import static io.huocode.api.adapter.github.CommitReader.authorOf;
+import static io.huocode.api.adapter.github.CommitReader.dateOf;
+import static io.huocode.api.adapter.github.CommitReader.fetchCommits;
+import static io.huocode.api.adapter.github.CommitReader.isBotAuthor;
+
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import io.huocode.api.conf.AnalysisProperties;
-import io.huocode.api.exception.GitHubRateLimitReachedException;
 import io.huocode.api.exception.RepoNotFoundException;
+import io.huocode.api.model.AnalysisWindowData;
+import io.huocode.api.model.Churn;
 import io.huocode.api.model.RepoUrl;
 import io.huocode.api.port.GitHubApiPort;
-import java.io.IOException;
-import java.net.URI;
-import java.net.URLEncoder;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
-import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
-import java.util.stream.Collectors;
-import lombok.SneakyThrows;
-import org.springframework.beans.factory.annotation.Value;
+import java.util.Set;
 import org.springframework.stereotype.Component;
 
 @Component
 public class HttpGitHubApiAdapter implements GitHubApiPort {
 
-  private static final String ACCEPT_JSON = "application/vnd.github+json";
-  private static final String ACCEPT_RAW = "application/vnd.github.raw+json";
+  private final GitHubApiHttp http;
 
-  private final HttpClient httpClient;
-  private final ObjectMapper objectMapper;
-  private final String baseUrl;
-  private final String token;
-  private final Duration requestTimeout;
-
-  public HttpGitHubApiAdapter(
-      AnalysisProperties properties,
-      ObjectMapper objectMapper,
-      @Value("${huocode.github-base-url:https://api.github.com}") String baseUrl) {
-    this.httpClient =
-        HttpClient.newBuilder().connectTimeout(properties.getGithubRequestTimeout()).build();
-    this.objectMapper = objectMapper;
-    this.baseUrl = baseUrl;
-    this.token = properties.getGithubToken();
-    this.requestTimeout = properties.getGithubRequestTimeout();
+  public HttpGitHubApiAdapter(GitHubApiHttp http) {
+    this.http = http;
   }
 
   @Override
   public boolean repoExists(RepoUrl repoUrl) {
     try {
-      getOrThrow(repoUrl, repoPath(repoUrl), false);
+      http.getJson(repoUrl, http.repoPath(repoUrl));
       return true;
     } catch (RepoNotFoundException e) {
       return false;
@@ -58,13 +39,15 @@ public class HttpGitHubApiAdapter implements GitHubApiPort {
 
   @Override
   public String defaultBranch(RepoUrl repoUrl) {
-    return json(repoUrl, repoPath(repoUrl)).get("default_branch").asText();
+    return http.getJson(repoUrl, http.repoPath(repoUrl)).get("default_branch").asText();
   }
 
   @Override
   public String latestCommitSha(RepoUrl repoUrl) {
     String branch = defaultBranch(repoUrl);
-    return json(repoUrl, repoPath(repoUrl) + "/commits/" + encode(branch) + "?per_page=1")
+    return http.getJson(
+            repoUrl,
+            http.repoPath(repoUrl) + "/commits/" + GitHubApiHttp.encode(branch) + "?per_page=1")
         .get("sha")
         .asText();
   }
@@ -93,77 +76,60 @@ public class HttpGitHubApiAdapter implements GitHubApiPort {
 
   @Override
   public String rawContent(RepoUrl repoUrl, String path, String commitSha) {
-    String urlPath =
-        repoPath(repoUrl) + "/contents/" + encodePath(path) + "?ref=" + encode(commitSha);
-    return getOrThrow(repoUrl, urlPath, true).body();
+    return http.getRaw(
+        repoUrl,
+        http.repoPath(repoUrl)
+            + "/contents/"
+            + GitHubApiHttp.encodePath(path)
+            + "?ref="
+            + GitHubApiHttp.encode(commitSha));
   }
 
-  @SneakyThrows
-  private JsonNode json(RepoUrl repoUrl, String path) {
-    return objectMapper.readTree(getOrThrow(repoUrl, path, false).body());
+  @Override
+  public Churn churnForPath(RepoUrl repoUrl, String path, int maxCommits) {
+    int commits = 0;
+    Set<String> authors = new HashSet<>();
+    for (JsonNode item : fetchCommits(http, repoUrl, path, maxCommits)) {
+      if (isBotAuthor(item)) {
+        continue;
+      }
+      commits++;
+      String author = authorOf(item);
+      if (!author.isEmpty()) {
+        authors.add(author);
+      }
+    }
+    return new Churn(commits, authors.size());
+  }
+
+  @Override
+  public AnalysisWindowData analysisWindow(RepoUrl repoUrl, int maxCommits) {
+    int commitsAnalyzed = 0;
+    Set<String> authors = new HashSet<>();
+    List<Instant> dates = new ArrayList<>();
+    for (JsonNode item : fetchCommits(http, repoUrl, null, maxCommits)) {
+      if (isBotAuthor(item)) {
+        continue;
+      }
+      commitsAnalyzed++;
+      String author = authorOf(item);
+      if (!author.isEmpty()) {
+        authors.add(author);
+      }
+      dateOf(item).ifPresent(dates::add);
+    }
+    Instant oldest = dates.stream().min(Instant::compareTo).orElse(null);
+    Instant newest = dates.stream().max(Instant::compareTo).orElse(null);
+    return new AnalysisWindowData(commitsAnalyzed, oldest, newest, authors.size());
   }
 
   private JsonNode tree(RepoUrl repoUrl, String commitSha) {
-    return json(repoUrl, repoPath(repoUrl) + "/git/trees/" + encode(commitSha) + "?recursive=1")
+    return http.getJson(
+            repoUrl,
+            http.repoPath(repoUrl)
+                + "/git/trees/"
+                + GitHubApiHttp.encode(commitSha)
+                + "?recursive=1")
         .get("tree");
-  }
-
-  private HttpResponse<String> getOrThrow(RepoUrl repoUrl, String path, boolean raw) {
-    HttpResponse<String> response;
-    try {
-      HttpRequest.Builder requestBuilder =
-          HttpRequest.newBuilder(URI.create(baseUrl + path))
-              .timeout(requestTimeout)
-              .header("Accept", raw ? ACCEPT_RAW : ACCEPT_JSON)
-              .header("User-Agent", "huocode")
-              .header("X-GitHub-Api-Version", "2022-11-28")
-              .GET();
-      if (token != null && !token.isBlank()) {
-        requestBuilder.header("Authorization", "Bearer " + token);
-      }
-      response = httpClient.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofString());
-    } catch (IOException e) {
-      throw new IllegalStateException(
-          "GitHub request failed for " + repoUrl + ": " + e.getMessage(), e);
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-      throw new IllegalStateException(
-          "GitHub request interrupted for " + repoUrl + ": " + e.getMessage(), e);
-    }
-    if (response.statusCode() == 404) {
-      throw new RepoNotFoundException("repo " + repoUrl + " not found or private");
-    }
-    if (response.statusCode() == 403 && isRateLimited(response)) {
-      throw new GitHubRateLimitReachedException("GitHub API rate limit reached");
-    }
-    if (response.statusCode() != 200) {
-      throw new IllegalStateException(
-          "GitHub API returned "
-              + response.statusCode()
-              + " for "
-              + repoUrl
-              + ": "
-              + response.body());
-    }
-    return response;
-  }
-
-  private boolean isRateLimited(HttpResponse<String> response) {
-    return "0".equals(response.headers().firstValue("x-ratelimit-remaining").orElse(null))
-        || response.body().contains("API rate limit exceeded");
-  }
-
-  private String repoPath(RepoUrl repoUrl) {
-    return "/repos/" + repoUrl.owner() + "/" + repoUrl.repo();
-  }
-
-  private static String encode(String value) {
-    return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
-  }
-
-  private static String encodePath(String path) {
-    return java.util.Arrays.stream(path.split("/"))
-        .map(HttpGitHubApiAdapter::encode)
-        .collect(Collectors.joining("/"));
   }
 }
