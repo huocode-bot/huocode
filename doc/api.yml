@@ -622,7 +622,7 @@ components:
             100 = healthiest, 0 = most at-risk (spec section 3.7). A plain integer —
             no letter grade is computed or transmitted. Present only if status = analyzed
             AND relativeScoringEnabled = true.
-          example: 12
+          example: 9
         quadrant:
           $ref: '#/components/schemas/Quadrant'
         exceedsCommonComplexityThreshold:
