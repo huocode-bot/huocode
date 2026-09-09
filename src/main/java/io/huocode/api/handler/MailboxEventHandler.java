@@ -8,6 +8,7 @@ import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.amazonaws.services.lambda.runtime.events.SQSEvent;
 import com.amazonaws.services.lambda.runtime.events.SQSEvent.SQSMessage;
+import io.huocode.api.PojaApplication;
 import io.huocode.api.PojaGenerated;
 import io.huocode.api.endpoint.EndpointConf;
 import io.huocode.api.endpoint.event.EventConf;
@@ -50,7 +51,7 @@ public class MailboxEventHandler implements RequestHandler<SQSEvent, String> {
   }
 
   private ConfigurableApplicationContext applicationContext(String... args) {
-    SpringApplication application = new SpringApplication(io.huocode.api.HuoCodeApplication.class);
+    SpringApplication application = new SpringApplication(PojaApplication.class);
     application.setDefaultProperties(Map.of("server.port", SPRING_SERVER_PORT_FOR_RANDOM_VALUE));
     application.setAdditionalProfiles("worker");
     return application.run(args);

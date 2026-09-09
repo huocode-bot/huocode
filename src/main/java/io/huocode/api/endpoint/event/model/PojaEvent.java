@@ -39,6 +39,7 @@ public abstract class PojaEvent implements Serializable {
   }
 
   public String getEventSource() {
-    return "io.huocode.api.event1";
+    if (getEventStack().equals(EVENT_STACK_1)) return "io.huocode.api.event1";
+    return "io.huocode.api.event2";
   }
 }
