@@ -18,6 +18,8 @@ import io.huocode.api.endpoint.event.model.RepoAnalysisRequested;
 import io.huocode.api.endpoint.rest.model.AnalysisResult;
 import io.huocode.api.endpoint.rest.model.JobAccepted;
 import io.huocode.api.endpoint.rest.model.JobProcessing;
+import io.huocode.api.exception.ChallengeFailedException;
+import io.huocode.api.exception.ChallengeRequiredException;
 import io.huocode.api.exception.JobNotFoundException;
 import io.huocode.api.exception.QueueFullException;
 import io.huocode.api.exception.RateLimitExceededException;
@@ -30,6 +32,9 @@ import io.huocode.api.port.GitHubApiPort;
 import io.huocode.api.port.JobStore;
 import io.huocode.api.ratelimit.IpRateLimiter;
 import io.huocode.api.retrieval.RetrievalStrategySelector;
+import io.huocode.api.security.NoOpTurnstileVerifier;
+import io.huocode.api.security.TurnstileGate;
+import io.huocode.api.security.TurnstileVerifier;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collection;
@@ -69,6 +74,7 @@ class AnalysisJobServiceTest {
           10);
   private final ConcurrencyGuard concurrencyGuard = new ConcurrencyGuard(properties);
   private final IpRateLimiter ipRateLimiter = new IpRateLimiter(properties);
+  private final TurnstileVerifier noOpVerifier = new NoOpTurnstileVerifier();
   private final AnalysisJobService service =
       new AnalysisJobService(
           gitHubApiPort,
@@ -79,7 +85,8 @@ class AnalysisJobServiceTest {
           analysisJobMapper,
           properties,
           concurrencyGuard,
-          ipRateLimiter);
+          ipRateLimiter,
+          disabledGate(ipRateLimiter));
 
   private final RepoUrl repoUrl = new RepoUrl("owner", "repo");
   private final String sha = "abc123";
@@ -90,7 +97,7 @@ class AnalysisJobServiceTest {
     when(gitHubApiPort.latestCommitSha(repoUrl)).thenReturn(sha);
     when(analyzerService.cachedFor(repoUrl, sha)).thenReturn(Optional.of(cached));
 
-    AnalysisJobService.AnalysisSubmission submission = service.submit(repoUrl, "1.2.3.4");
+    AnalysisJobService.AnalysisSubmission submission = service.submit(repoUrl, "1.2.3.4", null);
 
     assertFalse(submission.isAsync());
     assertSame(cached, submission.result());
@@ -109,7 +116,7 @@ class AnalysisJobServiceTest {
     when(strategySelector.select(10L)).thenReturn(RetrievalStrategy.API_DIRECT);
     when(analyzerService.analyze(repoUrl)).thenReturn(fresh);
 
-    AnalysisJobService.AnalysisSubmission submission = service.submit(repoUrl, "1.2.3.4");
+    AnalysisJobService.AnalysisSubmission submission = service.submit(repoUrl, "1.2.3.4", null);
 
     assertFalse(submission.isAsync());
     assertSame(fresh, submission.result());
@@ -131,7 +138,7 @@ class AnalysisJobServiceTest {
     when(jobStore.findActive(repoUrl, sha)).thenReturn(Optional.empty());
     when(analysisJobMapper.toAccepted(any(UUID.class), Mockito.eq(60))).thenReturn(accepted);
 
-    AnalysisJobService.AnalysisSubmission submission = service.submit(repoUrl, "1.2.3.4");
+    AnalysisJobService.AnalysisSubmission submission = service.submit(repoUrl, "1.2.3.4", null);
 
     assertTrue(submission.isAsync());
     assertSame(accepted, submission.jobAccepted());
@@ -170,7 +177,7 @@ class AnalysisJobServiceTest {
                 .status(JobAccepted.StatusEnum.PROCESSING)
                 .estimatedSeconds(60));
 
-    AnalysisJobService.AnalysisSubmission submission = service.submit(repoUrl, "1.2.3.4");
+    AnalysisJobService.AnalysisSubmission submission = service.submit(repoUrl, "1.2.3.4", null);
 
     assertTrue(submission.isAsync());
     assertEquals(inFlightId, submission.jobAccepted().getJobId());
@@ -186,7 +193,7 @@ class AnalysisJobServiceTest {
     when(strategySelector.select(30000L))
         .thenThrow(new RepoTooLargeException("repo has too many files"));
 
-    assertThrows(RepoTooLargeException.class, () -> service.submit(repoUrl, "1.2.3.4"));
+    assertThrows(RepoTooLargeException.class, () -> service.submit(repoUrl, "1.2.3.4", null));
     verify(jobStore, never()).registerActive(any());
     verify(eventProducer, never()).accept(any());
   }
@@ -211,6 +218,7 @@ class AnalysisJobServiceTest {
             60,
             2,
             10);
+    IpRateLimiter limitedLimiter = new IpRateLimiter(limited);
     AnalysisJobService throttled =
         new AnalysisJobService(
             gitHubApiPort,
@@ -221,7 +229,8 @@ class AnalysisJobServiceTest {
             analysisJobMapper,
             limited,
             new ConcurrencyGuard(limited),
-            new IpRateLimiter(limited));
+            limitedLimiter,
+            disabledGate(limitedLimiter));
 
     AnalysisResult fresh = new AnalysisResult();
     when(gitHubApiPort.latestCommitSha(repoUrl)).thenReturn(sha);
@@ -230,9 +239,10 @@ class AnalysisJobServiceTest {
     when(strategySelector.select(10L)).thenReturn(RetrievalStrategy.API_DIRECT);
     when(analyzerService.analyze(repoUrl)).thenReturn(fresh);
 
-    assertFalse(throttled.submit(repoUrl, "1.2.3.4").isAsync());
-    assertThrows(RateLimitExceededException.class, () -> throttled.submit(repoUrl, "1.2.3.4"));
-    assertFalse(throttled.submit(repoUrl, "5.6.7.8").isAsync());
+    assertFalse(throttled.submit(repoUrl, "1.2.3.4", null).isAsync());
+    assertThrows(
+        RateLimitExceededException.class, () -> throttled.submit(repoUrl, "1.2.3.4", null));
+    assertFalse(throttled.submit(repoUrl, "5.6.7.8", null).isAsync());
   }
 
   @Test
@@ -257,6 +267,7 @@ class AnalysisJobServiceTest {
             10);
     ConcurrencyGuard saturatedGuard = new ConcurrencyGuard(saturated);
     saturatedGuard.tryAcquire();
+    IpRateLimiter saturatedLimiter = new IpRateLimiter(saturated);
     AnalysisJobService saturatedService =
         new AnalysisJobService(
             gitHubApiPort,
@@ -267,7 +278,8 @@ class AnalysisJobServiceTest {
             analysisJobMapper,
             saturated,
             saturatedGuard,
-            new IpRateLimiter(saturated));
+            saturatedLimiter,
+            disabledGate(saturatedLimiter));
 
     JobAccepted accepted =
         new JobAccepted()
@@ -281,7 +293,8 @@ class AnalysisJobServiceTest {
     when(jobStore.findActive(repoUrl, sha)).thenReturn(Optional.empty());
     when(analysisJobMapper.toAccepted(any(UUID.class), Mockito.eq(60))).thenReturn(accepted);
 
-    AnalysisJobService.AnalysisSubmission submission = saturatedService.submit(repoUrl, "1.2.3.4");
+    AnalysisJobService.AnalysisSubmission submission =
+        saturatedService.submit(repoUrl, "1.2.3.4", null);
 
     assertTrue(submission.isAsync());
     assertSame(accepted, submission.jobAccepted());
@@ -310,6 +323,7 @@ class AnalysisJobServiceTest {
             60,
             2,
             0);
+    IpRateLimiter saturatedLimiter = new IpRateLimiter(saturated);
     AnalysisJobService saturatedService =
         new AnalysisJobService(
             gitHubApiPort,
@@ -320,7 +334,8 @@ class AnalysisJobServiceTest {
             analysisJobMapper,
             saturated,
             new ConcurrencyGuard(saturated),
-            new IpRateLimiter(saturated));
+            saturatedLimiter,
+            disabledGate(saturatedLimiter));
 
     when(gitHubApiPort.latestCommitSha(repoUrl)).thenReturn(sha);
     when(analyzerService.cachedFor(repoUrl, sha)).thenReturn(Optional.empty());
@@ -329,7 +344,7 @@ class AnalysisJobServiceTest {
     when(jobStore.findActive(repoUrl, sha)).thenReturn(Optional.empty());
     when(jobStore.countActive()).thenReturn(0L);
 
-    assertThrows(QueueFullException.class, () -> saturatedService.submit(repoUrl, "1.2.3.4"));
+    assertThrows(QueueFullException.class, () -> saturatedService.submit(repoUrl, "1.2.3.4", null));
     verify(jobStore, never()).registerActive(any(RepoAnalysisJob.class));
     verify(eventProducer, never()).accept(any());
   }
@@ -379,5 +394,108 @@ class AnalysisJobServiceTest {
 
     assertSame(processing, service.getJob(jobId));
     verify(jobStore, never()).delete(any());
+  }
+
+  @Test
+  void submit_challenges_ip_only_after_repeated_triggered_analyses() throws Exception {
+    stubSmallRepoSyncAnalysis();
+    AnalysisJobService stepUp = serviceWithTurnstile(noOpVerifier, true, 3);
+
+    assertFalse(stepUp.submit(repoUrl, "1.2.3.4", null).isAsync());
+    assertFalse(stepUp.submit(repoUrl, "1.2.3.4", null).isAsync());
+    assertFalse(stepUp.submit(repoUrl, "1.2.3.4", null).isAsync());
+    assertThrows(ChallengeRequiredException.class, () -> stepUp.submit(repoUrl, "1.2.3.4", null));
+    assertFalse(stepUp.submit(repoUrl, "5.6.7.8", null).isAsync());
+  }
+
+  @Test
+  void submit_accepts_valid_token_and_marks_ip_verified() throws Exception {
+    TurnstileVerifier verifier = Mockito.mock(TurnstileVerifier.class);
+    stubSmallRepoSyncAnalysis();
+    AnalysisJobService stepUp = serviceWithTurnstile(verifier, true, 3);
+
+    assertFalse(stepUp.submit(repoUrl, "1.2.3.4", null).isAsync());
+    assertFalse(stepUp.submit(repoUrl, "1.2.3.4", null).isAsync());
+    assertFalse(stepUp.submit(repoUrl, "1.2.3.4", null).isAsync());
+    assertFalse(stepUp.submit(repoUrl, "1.2.3.4", "good-token").isAsync());
+
+    verify(verifier).verify("good-token");
+    assertFalse(stepUp.submit(repoUrl, "1.2.3.4", null).isAsync());
+  }
+
+  @Test
+  void submit_rejects_invalid_token_and_keeps_ip_unverified() throws Exception {
+    TurnstileVerifier verifier = Mockito.mock(TurnstileVerifier.class);
+    Mockito.doThrow(new ChallengeFailedException("bad token")).when(verifier).verify("bad-token");
+    stubSmallRepoSyncAnalysis();
+    AnalysisJobService stepUp = serviceWithTurnstile(verifier, true, 3);
+
+    assertFalse(stepUp.submit(repoUrl, "1.2.3.4", null).isAsync());
+    assertFalse(stepUp.submit(repoUrl, "1.2.3.4", null).isAsync());
+    assertThrows(
+        ChallengeFailedException.class, () -> stepUp.submit(repoUrl, "1.2.3.4", "bad-token"));
+    assertFalse(stepUp.submit(repoUrl, "1.2.3.4", null).isAsync());
+    assertThrows(ChallengeRequiredException.class, () -> stepUp.submit(repoUrl, "1.2.3.4", null));
+
+    verify(verifier).verify("bad-token");
+  }
+
+  @Test
+  void submit_cached_hits_skip_challenge_even_past_threshold() throws Exception {
+    stubSmallRepoSyncAnalysis();
+    AnalysisJobService stepUp = serviceWithTurnstile(noOpVerifier, true, 3);
+
+    assertFalse(stepUp.submit(repoUrl, "1.2.3.4", null).isAsync());
+    assertFalse(stepUp.submit(repoUrl, "1.2.3.4", null).isAsync());
+    assertFalse(stepUp.submit(repoUrl, "1.2.3.4", null).isAsync());
+
+    AnalysisResult cached = new AnalysisResult();
+    when(analyzerService.cachedFor(repoUrl, sha)).thenReturn(Optional.of(cached));
+
+    AnalysisJobService.AnalysisSubmission submission = stepUp.submit(repoUrl, "1.2.3.4", null);
+
+    assertFalse(submission.isAsync());
+    assertSame(cached, submission.result());
+    assertEquals(3, ipRateLimiter.countFor("1.2.3.4"));
+
+    when(analyzerService.cachedFor(repoUrl, sha)).thenReturn(Optional.empty());
+    assertThrows(ChallengeRequiredException.class, () -> stepUp.submit(repoUrl, "1.2.3.4", null));
+  }
+
+  @Test
+  void submit_with_disabled_gate_never_challenges() throws Exception {
+    stubSmallRepoSyncAnalysis();
+    AnalysisJobService stepUp = serviceWithTurnstile(noOpVerifier, false, 3);
+
+    for (int i = 0; i < 5; i++) {
+      assertFalse(stepUp.submit(repoUrl, "1.2.3.4", null).isAsync());
+    }
+  }
+
+  private AnalysisJobService serviceWithTurnstile(
+      TurnstileVerifier verifier, boolean enabled, int challengeAfter) {
+    return new AnalysisJobService(
+        gitHubApiPort,
+        analyzerService,
+        strategySelector,
+        jobStore,
+        eventProducer,
+        analysisJobMapper,
+        properties,
+        concurrencyGuard,
+        ipRateLimiter,
+        new TurnstileGate(verifier, ipRateLimiter, enabled, challengeAfter, Duration.ofHours(1)));
+  }
+
+  private TurnstileGate disabledGate(IpRateLimiter limiter) {
+    return new TurnstileGate(noOpVerifier, limiter, false, 3, Duration.ofHours(1));
+  }
+
+  private void stubSmallRepoSyncAnalysis() throws Exception {
+    when(gitHubApiPort.latestCommitSha(repoUrl)).thenReturn(sha);
+    when(analyzerService.cachedFor(repoUrl, sha)).thenReturn(Optional.empty());
+    when(gitHubApiPort.fileCount(repoUrl, sha)).thenReturn(10L);
+    when(strategySelector.select(10L)).thenReturn(RetrievalStrategy.API_DIRECT);
+    when(analyzerService.analyze(repoUrl)).thenReturn(new AnalysisResult());
   }
 }

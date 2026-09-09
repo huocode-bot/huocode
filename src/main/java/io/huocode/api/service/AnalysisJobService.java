@@ -17,6 +17,7 @@ import io.huocode.api.port.GitHubApiPort;
 import io.huocode.api.port.JobStore;
 import io.huocode.api.ratelimit.IpRateLimiter;
 import io.huocode.api.retrieval.RetrievalStrategySelector;
+import io.huocode.api.security.TurnstileGate;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
@@ -38,6 +39,7 @@ public class AnalysisJobService {
   private final AnalysisProperties properties;
   private final ConcurrencyGuard concurrencyGuard;
   private final IpRateLimiter ipRateLimiter;
+  private final TurnstileGate turnstileGate;
 
   public record AnalysisSubmission(AnalysisResult result, JobAccepted jobAccepted) {
 
@@ -54,12 +56,14 @@ public class AnalysisJobService {
     }
   }
 
-  public AnalysisSubmission submit(RepoUrl repoUrl, String clientIp) throws IOException {
+  public AnalysisSubmission submit(RepoUrl repoUrl, String clientIp, String turnstileToken)
+      throws IOException {
     String sha = gitHubApiPort.latestCommitSha(repoUrl);
     AnalysisResult cached = analyzerService.cachedFor(repoUrl, sha).orElse(null);
     if (cached != null) {
       return AnalysisSubmission.synchronous(cached);
     }
+    turnstileGate.enforce(clientIp, turnstileToken);
     if (!ipRateLimiter.tryAcquire(clientIp)) {
       throw new RateLimitExceededException(
           "too many analyses triggered from this client, retry later",

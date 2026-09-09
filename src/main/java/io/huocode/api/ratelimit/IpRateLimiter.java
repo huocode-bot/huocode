@@ -24,6 +24,25 @@ public class IpRateLimiter {
     return tryAcquireAt(clientIp, System.currentTimeMillis());
   }
 
+  public int countFor(String clientIp) {
+    return countForAt(clientIp, System.currentTimeMillis());
+  }
+
+  int countForAt(String clientIp, long nowMillis) {
+    if (maxPerWindow <= 0) {
+      return 0;
+    }
+    String key = clientIp == null ? "unknown" : clientIp;
+    Deque<Long> window = windows.get(key);
+    if (window == null) {
+      return 0;
+    }
+    synchronized (window) {
+      evictExpired(window, nowMillis);
+      return window.size();
+    }
+  }
+
   boolean tryAcquireAt(String clientIp, long nowMillis) {
     if (maxPerWindow <= 0) {
       return true;

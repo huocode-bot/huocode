@@ -28,7 +28,8 @@ public class AnalysisController {
   public ResponseEntity<Object> analyzeRepository(
       @RequestBody AnalyzeRequest request, HttpServletRequest httpRequest) throws IOException {
     AnalysisJobService.AnalysisSubmission submission =
-        analysisJobService.submit(requestValidator.validate(request), clientIp(httpRequest));
+        analysisJobService.submit(
+            requestValidator.validate(request), clientIp(httpRequest), request.getTurnstileToken());
     if (submission.isAsync()) {
       return ResponseEntity.status(HttpStatus.ACCEPTED).body(submission.jobAccepted());
     }

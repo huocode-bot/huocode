@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
 import io.huocode.api.endpoint.rest.model.FailureCode;
+import io.huocode.api.exception.ChallengeFailedException;
+import io.huocode.api.exception.ChallengeRequiredException;
 import io.huocode.api.exception.QueueFullException;
 import io.huocode.api.exception.RateLimitExceededException;
 import io.huocode.api.exception.RepoUrlValidationException;
@@ -37,6 +39,23 @@ class ErrorHandlerTest {
     var response = errorHandler.handleApiException(new QueueFullException("worker saturated", 60));
     assertSame(HttpStatus.SERVICE_UNAVAILABLE, response.getStatusCode());
     assertEquals("60", response.getHeaders().getFirst(HttpHeaders.RETRY_AFTER));
+  }
+
+  @Test
+  void challenge_required_exception_maps_to_428() {
+    var response =
+        errorHandler.handleApiException(new ChallengeRequiredException("challenge required"));
+    assertSame(HttpStatus.PRECONDITION_REQUIRED, response.getStatusCode());
+    assertSame(FailureCode.CHALLENGE_REQUIRED, response.getBody().getCode());
+    assertEquals("challenge required", response.getBody().getMessage());
+  }
+
+  @Test
+  void challenge_failed_exception_maps_to_403() {
+    var response = errorHandler.handleApiException(new ChallengeFailedException("bad token"));
+    assertSame(HttpStatus.FORBIDDEN, response.getStatusCode());
+    assertSame(FailureCode.CHALLENGE_FAILED, response.getBody().getCode());
+    assertEquals("bad token", response.getBody().getMessage());
   }
 
   @Test

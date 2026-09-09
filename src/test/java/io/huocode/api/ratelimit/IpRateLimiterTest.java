@@ -1,5 +1,6 @@
 package io.huocode.api.ratelimit;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -65,5 +66,42 @@ class IpRateLimiterTest {
     assertTrue(limiter.tryAcquireAt("1.2.3.4", 0L));
     assertTrue(limiter.tryAcquireAt("1.2.3.4", 100L));
     assertTrue(limiter.tryAcquireAt("1.2.3.4", 200L));
+  }
+
+  @Test
+  void count_for_reports_current_window_without_consuming() {
+    IpRateLimiter limiter = limiter(3);
+
+    assertTrue(limiter.tryAcquireAt("1.2.3.4", 0L));
+    assertTrue(limiter.tryAcquireAt("1.2.3.4", 100L));
+
+    assertEquals(2, limiter.countForAt("1.2.3.4", 200L));
+    assertEquals(2, limiter.countForAt("1.2.3.4", 300L));
+    assertTrue(limiter.tryAcquireAt("1.2.3.4", 400L));
+    assertEquals(3, limiter.countForAt("1.2.3.4", 500L));
+  }
+
+  @Test
+  void count_for_evicts_expired_slots() {
+    IpRateLimiter limiter = limiter(1);
+
+    assertTrue(limiter.tryAcquireAt("1.2.3.4", 0L));
+    assertEquals(1, limiter.countForAt("1.2.3.4", 3_599_999L));
+    assertEquals(0, limiter.countForAt("1.2.3.4", 3_600_001L));
+  }
+
+  @Test
+  void count_for_unknown_or_null_ip_is_zero() {
+    IpRateLimiter limiter = limiter(3);
+
+    assertEquals(0, limiter.countForAt("1.2.3.4", 0L));
+    assertEquals(0, limiter.countForAt(null, 0L));
+  }
+
+  @Test
+  void count_for_zero_limit_means_unlimited() {
+    IpRateLimiter limiter = limiter(0);
+
+    assertEquals(0, limiter.countForAt("1.2.3.4", 0L));
   }
 }

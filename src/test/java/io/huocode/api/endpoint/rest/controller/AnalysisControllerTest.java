@@ -3,6 +3,7 @@ package io.huocode.api.endpoint.rest.controller;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -18,6 +19,8 @@ import io.huocode.api.endpoint.rest.model.FailureCode;
 import io.huocode.api.endpoint.rest.model.JobAccepted;
 import io.huocode.api.endpoint.rest.model.JobFailed;
 import io.huocode.api.endpoint.rest.model.JobProcessing;
+import io.huocode.api.exception.ChallengeFailedException;
+import io.huocode.api.exception.ChallengeRequiredException;
 import io.huocode.api.exception.JobNotFoundException;
 import io.huocode.api.exception.QueueFullException;
 import io.huocode.api.exception.RateLimitExceededException;
@@ -55,7 +58,7 @@ class AnalysisControllerTest {
   @Test
   void analyze_returns_completed_result_for_sync_analysis() throws Exception {
     when(requestValidator.validate(any())).thenReturn(repoUrl);
-    when(analysisJobService.submit(eq(repoUrl), anyString()))
+    when(analysisJobService.submit(eq(repoUrl), anyString(), isNull()))
         .thenReturn(AnalysisJobService.AnalysisSubmission.synchronous(aResult()));
 
     mockMvc
@@ -74,7 +77,7 @@ class AnalysisControllerTest {
   @Test
   void analyze_returns_202_with_job_accepted_for_async_analysis() throws Exception {
     when(requestValidator.validate(any())).thenReturn(repoUrl);
-    when(analysisJobService.submit(eq(repoUrl), anyString()))
+    when(analysisJobService.submit(eq(repoUrl), anyString(), isNull()))
         .thenReturn(
             AnalysisJobService.AnalysisSubmission.asynchronous(
                 new JobAccepted()
@@ -111,7 +114,7 @@ class AnalysisControllerTest {
   @Test
   void analyze_maps_missing_repo_to_404() throws Exception {
     when(requestValidator.validate(any())).thenReturn(repoUrl);
-    when(analysisJobService.submit(eq(repoUrl), anyString()))
+    when(analysisJobService.submit(eq(repoUrl), anyString(), isNull()))
         .thenThrow(new RepoNotFoundException("repo not found"));
     stubErrorMapping();
 
@@ -127,7 +130,7 @@ class AnalysisControllerTest {
   @Test
   void analyze_maps_too_large_repo_to_413() throws Exception {
     when(requestValidator.validate(any())).thenReturn(repoUrl);
-    when(analysisJobService.submit(eq(repoUrl), anyString()))
+    when(analysisJobService.submit(eq(repoUrl), anyString(), isNull()))
         .thenThrow(new RepoTooLargeException("repo has too many files"));
     stubErrorMapping();
 
@@ -143,7 +146,7 @@ class AnalysisControllerTest {
   @Test
   void analyze_maps_rate_limited_to_429_with_retry_after() throws Exception {
     when(requestValidator.validate(any())).thenReturn(repoUrl);
-    when(analysisJobService.submit(eq(repoUrl), anyString()))
+    when(analysisJobService.submit(eq(repoUrl), anyString(), isNull()))
         .thenThrow(new RateLimitExceededException("too many analyses", 60));
     stubErrorMapping();
 
@@ -160,7 +163,7 @@ class AnalysisControllerTest {
   @Test
   void analyze_maps_queue_full_to_503_with_retry_after() throws Exception {
     when(requestValidator.validate(any())).thenReturn(repoUrl);
-    when(analysisJobService.submit(eq(repoUrl), anyString()))
+    when(analysisJobService.submit(eq(repoUrl), anyString(), isNull()))
         .thenThrow(new QueueFullException("worker queue saturated", 60));
     stubErrorMapping();
 
@@ -177,7 +180,7 @@ class AnalysisControllerTest {
   @Test
   void analyze_forwards_forwarded_client_ip_to_service() throws Exception {
     when(requestValidator.validate(any())).thenReturn(repoUrl);
-    when(analysisJobService.submit(eq(repoUrl), anyString()))
+    when(analysisJobService.submit(eq(repoUrl), anyString(), isNull()))
         .thenReturn(AnalysisJobService.AnalysisSubmission.synchronous(aResult()));
 
     mockMvc
@@ -188,7 +191,57 @@ class AnalysisControllerTest {
                 .content("{\"repoUrl\":\"https://github.com/owner/repo\"}"))
         .andExpect(status().isOk());
 
-    verify(analysisJobService).submit(eq(repoUrl), eq("203.0.113.9"));
+    verify(analysisJobService).submit(eq(repoUrl), eq("203.0.113.9"), isNull());
+  }
+
+  @Test
+  void analyze_forwards_turnstile_token_to_service() throws Exception {
+    when(requestValidator.validate(any())).thenReturn(repoUrl);
+    when(analysisJobService.submit(eq(repoUrl), anyString(), eq("tok-123")))
+        .thenReturn(AnalysisJobService.AnalysisSubmission.synchronous(aResult()));
+
+    mockMvc
+        .perform(
+            post("/analyze")
+                .header("X-Forwarded-For", "203.0.113.9")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"repoUrl\":\"https://github.com/owner/repo\",\"turnstileToken\":\"tok-123\"}"))
+        .andExpect(status().isOk());
+
+    verify(analysisJobService).submit(eq(repoUrl), eq("203.0.113.9"), eq("tok-123"));
+  }
+
+  @Test
+  void analyze_maps_challenge_required_to_428() throws Exception {
+    when(requestValidator.validate(any())).thenReturn(repoUrl);
+    when(analysisJobService.submit(eq(repoUrl), anyString(), isNull()))
+        .thenThrow(new ChallengeRequiredException("challenge required"));
+    stubErrorMapping();
+
+    mockMvc
+        .perform(
+            post("/analyze")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"repoUrl\":\"https://github.com/owner/repo\"}"))
+        .andExpect(status().isPreconditionRequired())
+        .andExpect(jsonPath("$.code").value("CHALLENGE_REQUIRED"));
+  }
+
+  @Test
+  void analyze_maps_challenge_failed_to_403() throws Exception {
+    when(requestValidator.validate(any())).thenReturn(repoUrl);
+    when(analysisJobService.submit(eq(repoUrl), anyString(), isNull()))
+        .thenThrow(new ChallengeFailedException("invalid or expired token"));
+    stubErrorMapping();
+
+    mockMvc
+        .perform(
+            post("/analyze")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"repoUrl\":\"https://github.com/owner/repo\"}"))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("CHALLENGE_FAILED"));
   }
 
   @Test
