@@ -11,15 +11,10 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.stereotype.Component;
 
-@Component
-@ConditionalOnProperty(name = "huocode.turnstile.enabled", havingValue = "true")
 public class CloudflareTurnstileVerifier implements TurnstileVerifier {
 
-  private static final String DEFAULT_SITEVERIFY_URL =
+  static final String DEFAULT_SITEVERIFY_URL =
       "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 
   private final ObjectMapper objectMapper;
@@ -29,11 +24,7 @@ public class CloudflareTurnstileVerifier implements TurnstileVerifier {
   private final Duration requestTimeout;
 
   public CloudflareTurnstileVerifier(
-      ObjectMapper objectMapper,
-      @Value("${huocode.turnstile.secret-key:}") String secretKey,
-      @Value("${huocode.turnstile.siteverify-url:" + DEFAULT_SITEVERIFY_URL + "}")
-          String siteverifyUrl,
-      @Value("${huocode.turnstile.request-timeout:PT5S}") Duration requestTimeout) {
+      ObjectMapper objectMapper, String secretKey, String siteverifyUrl, Duration requestTimeout) {
     this(
         objectMapper,
         HttpClient.newBuilder().connectTimeout(requestTimeout).build(),

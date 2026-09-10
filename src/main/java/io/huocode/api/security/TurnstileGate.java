@@ -7,6 +7,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -21,6 +22,7 @@ public class TurnstileGate {
   private final Clock clock;
   private final Map<String, Instant> verifiedUntil = new ConcurrentHashMap<>();
 
+  @Autowired
   public TurnstileGate(
       TurnstileVerifier turnstileVerifier,
       IpRateLimiter ipRateLimiter,
