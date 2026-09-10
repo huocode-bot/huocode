@@ -48,11 +48,10 @@ public class RepoAggregator {
   private final ScoreEngine scoreEngine;
   private final AnalysisProperties properties;
 
-  public AnalysisResult analyze(RepoUrl repoUrl) throws IOException {
-    String sha = gitHubApiPort.latestCommitSha(repoUrl);
+  public AnalysisResult analyze(RepoUrl repoUrl, String sha) throws IOException {
     RetrievalStrategy strategy = strategySelector.select(gitHubApiPort.fileCount(repoUrl, sha));
     return switch (strategy) {
-      case API_DIRECT -> analyzeApiDirect(repoUrl);
+      case API_DIRECT -> analyzeApiDirect(repoUrl, sha);
       case CLONE -> analyzeClone(repoUrl);
     };
   }
@@ -79,8 +78,8 @@ public class RepoAggregator {
     }
   }
 
-  private AnalysisResult analyzeApiDirect(RepoUrl repoUrl) throws IOException {
-    ApiDirectRetrieverData data = apiDirectRetriever.retrieve(repoUrl);
+  private AnalysisResult analyzeApiDirect(RepoUrl repoUrl, String sha) throws IOException {
+    ApiDirectRetrieverData data = apiDirectRetriever.retrieve(repoUrl, sha);
     Path work = Files.createTempDirectory("huocode-work-");
     try {
       Path repoDirectory = work.resolve(WORK_DIRECTORY);

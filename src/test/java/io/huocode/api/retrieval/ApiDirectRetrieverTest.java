@@ -44,7 +44,7 @@ class ApiDirectRetrieverTest {
     StubGitHubApiPort port = new StubGitHubApiPort();
     ApiDirectRetriever retriever = new ApiDirectRetriever(port, PROPERTIES);
 
-    ApiDirectRetrieverData data = retriever.retrieve(REPO);
+    ApiDirectRetrieverData data = retriever.retrieve(REPO, "sha1");
 
     assertEquals("sha1", data.sha());
     assertEquals(List.of("A.java", "src/B.java"), data.files());

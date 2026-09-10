@@ -4,7 +4,6 @@ import io.huocode.api.aggregation.RepoAggregator;
 import io.huocode.api.endpoint.rest.model.AnalysisResult;
 import io.huocode.api.exception.ReportNotFoundException;
 import io.huocode.api.model.RepoUrl;
-import io.huocode.api.port.GitHubApiPort;
 import io.huocode.api.port.ReportStore;
 import java.io.IOException;
 import java.util.Optional;
@@ -15,17 +14,15 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class RepoUrlAnalyzerService {
 
-  private final GitHubApiPort gitHubApiPort;
   private final RepoAggregator repoAggregator;
   private final ReportStore reportStore;
 
-  public AnalysisResult analyze(RepoUrl repoUrl) throws IOException {
-    String sha = gitHubApiPort.latestCommitSha(repoUrl);
+  public AnalysisResult analyze(RepoUrl repoUrl, String sha) throws IOException {
     AnalysisResult cached = cachedFor(repoUrl, sha).orElse(null);
     if (cached != null) {
       return cached;
     }
-    AnalysisResult result = repoAggregator.analyze(repoUrl);
+    AnalysisResult result = repoAggregator.analyze(repoUrl, sha);
     reportStore.save(repoUrl, sha, result);
     return result;
   }

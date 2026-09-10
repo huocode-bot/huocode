@@ -40,7 +40,7 @@ public class RepoAnalysisRequestedService implements Consumer<RepoAnalysisReques
     try {
       RepoUrl repoUrl = repoUrlValidator.validate(URI.create(job.canonicalUrl()));
       jobStore.save(job.started(Instant.now()));
-      AnalysisResult result = analyzerService.analyze(repoUrl);
+      AnalysisResult result = analyzerService.analyze(repoUrl, job.getCommitSha());
       jobStore.save(job.completed(result));
       jobStore.clearActive(repoUrl, job.getCommitSha(), job.getJobId());
     } catch (GitHubRateLimitReachedException e) {

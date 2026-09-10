@@ -102,7 +102,7 @@ class AnalysisJobServiceTest {
     assertFalse(submission.isAsync());
     assertSame(cached, submission.result());
     verify(strategySelector, never()).select(anyLong());
-    verify(analyzerService, never()).analyze(any());
+    verify(analyzerService, never()).analyze(any(), any());
     verify(jobStore, never()).registerActive(any());
     verify(eventProducer, never()).accept(any());
   }
@@ -114,7 +114,7 @@ class AnalysisJobServiceTest {
     when(analyzerService.cachedFor(repoUrl, sha)).thenReturn(Optional.empty());
     when(gitHubApiPort.fileCount(repoUrl, sha)).thenReturn(10L);
     when(strategySelector.select(10L)).thenReturn(RetrievalStrategy.API_DIRECT);
-    when(analyzerService.analyze(repoUrl)).thenReturn(fresh);
+    when(analyzerService.analyze(repoUrl, sha)).thenReturn(fresh);
 
     AnalysisJobService.AnalysisSubmission submission = service.submit(repoUrl, "1.2.3.4", null);
 
@@ -237,7 +237,7 @@ class AnalysisJobServiceTest {
     when(analyzerService.cachedFor(repoUrl, sha)).thenReturn(Optional.empty());
     when(gitHubApiPort.fileCount(repoUrl, sha)).thenReturn(10L);
     when(strategySelector.select(10L)).thenReturn(RetrievalStrategy.API_DIRECT);
-    when(analyzerService.analyze(repoUrl)).thenReturn(fresh);
+    when(analyzerService.analyze(repoUrl, sha)).thenReturn(fresh);
 
     assertFalse(throttled.submit(repoUrl, "1.2.3.4", null).isAsync());
     assertThrows(
@@ -298,7 +298,7 @@ class AnalysisJobServiceTest {
 
     assertTrue(submission.isAsync());
     assertSame(accepted, submission.jobAccepted());
-    verify(analyzerService, never()).analyze(any());
+    verify(analyzerService, never()).analyze(any(), any());
     verify(jobStore).registerActive(any(RepoAnalysisJob.class));
     verify(eventProducer).accept(any());
   }
@@ -496,6 +496,6 @@ class AnalysisJobServiceTest {
     when(analyzerService.cachedFor(repoUrl, sha)).thenReturn(Optional.empty());
     when(gitHubApiPort.fileCount(repoUrl, sha)).thenReturn(10L);
     when(strategySelector.select(10L)).thenReturn(RetrievalStrategy.API_DIRECT);
-    when(analyzerService.analyze(repoUrl)).thenReturn(new AnalysisResult());
+    when(analyzerService.analyze(repoUrl, sha)).thenReturn(new AnalysisResult());
   }
 }

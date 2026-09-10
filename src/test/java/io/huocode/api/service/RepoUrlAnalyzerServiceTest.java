@@ -15,7 +15,6 @@ import io.huocode.api.endpoint.rest.model.AnalysisResult;
 import io.huocode.api.endpoint.rest.model.AnalysisWindow;
 import io.huocode.api.exception.ReportNotFoundException;
 import io.huocode.api.model.RepoUrl;
-import io.huocode.api.port.GitHubApiPort;
 import io.huocode.api.port.ReportStore;
 import java.io.IOException;
 import java.time.Instant;
@@ -26,11 +25,10 @@ import org.mockito.Mockito;
 
 class RepoUrlAnalyzerServiceTest {
 
-  private final GitHubApiPort gitHubApiPort = Mockito.mock(GitHubApiPort.class);
   private final RepoAggregator repoAggregator = Mockito.mock(RepoAggregator.class);
   private final ReportStore reportStore = Mockito.mock(ReportStore.class);
   private final RepoUrlAnalyzerService service =
-      new RepoUrlAnalyzerService(gitHubApiPort, repoAggregator, reportStore);
+      new RepoUrlAnalyzerService(repoAggregator, reportStore);
 
   private final RepoUrl repoUrl = new RepoUrl("owner", "repo");
   private final String sha = "abc123";
@@ -39,26 +37,24 @@ class RepoUrlAnalyzerServiceTest {
   void analyze_returns_cached_result_marked_cached() throws IOException {
     AnalysisResult cached =
         aResult(AnalysisResult.StrategyEnum.CLONE).repoHealthScore(42).summary(null);
-    when(gitHubApiPort.latestCommitSha(repoUrl)).thenReturn(sha);
     when(reportStore.findByRepoAndSha(repoUrl, sha)).thenReturn(Optional.of(cached));
 
-    AnalysisResult result = service.analyze(repoUrl);
+    AnalysisResult result = service.analyze(repoUrl, sha);
 
     assertSame(cached, result);
     assertEquals(AnalysisResult.StrategyEnum.CACHED, result.getStrategy());
     assertEquals(42, result.getRepoHealthScore());
-    verify(repoAggregator, never()).analyze(any());
+    verify(repoAggregator, never()).analyze(any(), any());
     verify(reportStore, never()).save(any(), any(), any());
   }
 
   @Test
   void analyze_computes_and_stores_when_not_cached() throws IOException {
     AnalysisResult fresh = aResult(AnalysisResult.StrategyEnum.API_DIRECT);
-    when(gitHubApiPort.latestCommitSha(repoUrl)).thenReturn(sha);
     when(reportStore.findByRepoAndSha(repoUrl, sha)).thenReturn(Optional.empty());
-    when(repoAggregator.analyze(repoUrl)).thenReturn(fresh);
+    when(repoAggregator.analyze(repoUrl, sha)).thenReturn(fresh);
 
-    AnalysisResult result = service.analyze(repoUrl);
+    AnalysisResult result = service.analyze(repoUrl, sha);
 
     assertSame(fresh, result);
     assertEquals(AnalysisResult.StrategyEnum.API_DIRECT, result.getStrategy());

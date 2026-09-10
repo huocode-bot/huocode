@@ -82,7 +82,7 @@ class RepoAggregatorTest {
             new ScoreEngine(PROPERTIES),
             PROPERTIES);
 
-    AnalysisResult result = aggregator.analyze(new RepoUrl("owner", "repo"));
+    AnalysisResult result = aggregator.analyze(new RepoUrl("owner", "repo"), "abc123");
 
     assertEquals(AnalysisResult.StatusEnum.COMPLETED, result.getStatus());
     assertEquals("owner/repo", result.getRepo());
@@ -143,7 +143,7 @@ class RepoAggregatorTest {
             new ScoreEngine(PROPERTIES),
             PROPERTIES);
 
-    AnalysisResult result = aggregator.analyze(new RepoUrl("owner", "repo"));
+    AnalysisResult result = aggregator.analyze(new RepoUrl("owner", "repo"), "abc123");
 
     assertEquals(StrategyEnum.API_DIRECT, result.getStrategy());
     assertEquals("abc123", result.getCommitSha());
@@ -207,7 +207,7 @@ class RepoAggregatorTest {
             new ScoreEngine(smallLimits),
             smallLimits);
 
-    AnalysisResult result = aggregator.analyze(new RepoUrl("owner", "repo"));
+    AnalysisResult result = aggregator.analyze(new RepoUrl("owner", "repo"), "abc123");
 
     FileResult big = fileFor(result, "Big.java");
     assertEquals(FileStatus.ERROR, big.getStatus());

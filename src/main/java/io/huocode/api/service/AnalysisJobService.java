@@ -77,7 +77,7 @@ public class AnalysisJobService {
                 queueAsync(repoUrl, sha), properties.getAsyncEstimatedSeconds()));
       }
       try {
-        return AnalysisSubmission.synchronous(analyzerService.analyze(repoUrl));
+        return AnalysisSubmission.synchronous(analyzerService.analyze(repoUrl, sha));
       } finally {
         concurrencyGuard.release();
       }

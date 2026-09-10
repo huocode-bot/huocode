@@ -65,7 +65,7 @@ class RepoAnalysisRequestedServiceTest {
     RepoAnalysisJob job = RepoAnalysisJob.pending(repoUrl, sha, jobId, now);
     AnalysisResult result = new AnalysisResult();
     when(jobStore.findById(jobId)).thenReturn(Optional.of(job));
-    when(analyzerService.analyze(repoUrl)).thenReturn(result);
+    when(analyzerService.analyze(repoUrl, sha)).thenReturn(result);
 
     service.accept(new RepoAnalysisRequested(jobId, repoUrl.canonicalUrl()));
 
@@ -83,7 +83,7 @@ class RepoAnalysisRequestedServiceTest {
 
     service.accept(new RepoAnalysisRequested(jobId, repoUrl.canonicalUrl()));
 
-    verify(analyzerService, never()).analyze(any());
+    verify(analyzerService, never()).analyze(any(), any());
     verify(jobStore, never()).save(any());
   }
 
@@ -96,7 +96,7 @@ class RepoAnalysisRequestedServiceTest {
 
     service.accept(new RepoAnalysisRequested(jobId, repoUrl.canonicalUrl()));
 
-    verify(analyzerService, never()).analyze(any());
+    verify(analyzerService, never()).analyze(any(), any());
     verify(jobStore, never()).save(any());
   }
 
@@ -110,7 +110,7 @@ class RepoAnalysisRequestedServiceTest {
 
     service.accept(new RepoAnalysisRequested(jobId, repoUrl.canonicalUrl()));
 
-    verify(analyzerService, never()).analyze(any());
+    verify(analyzerService, never()).analyze(any(), any());
     verify(jobStore, never()).save(any());
   }
 
@@ -122,11 +122,11 @@ class RepoAnalysisRequestedServiceTest {
             .started(now.minus(Duration.ofMinutes(20)));
     AnalysisResult result = new AnalysisResult();
     when(jobStore.findById(jobId)).thenReturn(Optional.of(stale));
-    when(analyzerService.analyze(repoUrl)).thenReturn(result);
+    when(analyzerService.analyze(repoUrl, sha)).thenReturn(result);
 
     service.accept(new RepoAnalysisRequested(jobId, repoUrl.canonicalUrl()));
 
-    verify(analyzerService).analyze(repoUrl);
+    verify(analyzerService).analyze(repoUrl, sha);
     verify(jobStore, times(2)).save(any());
     verify(jobStore).clearActive(repoUrl, sha, jobId);
   }
@@ -136,7 +136,7 @@ class RepoAnalysisRequestedServiceTest {
     Instant now = Instant.now();
     RepoAnalysisJob job = RepoAnalysisJob.pending(repoUrl, sha, jobId, now);
     when(jobStore.findById(jobId)).thenReturn(Optional.of(job));
-    when(analyzerService.analyze(repoUrl))
+    when(analyzerService.analyze(repoUrl, sha))
         .thenThrow(new GitHubRateLimitReachedException("rate limited"));
 
     service.accept(new RepoAnalysisRequested(jobId, repoUrl.canonicalUrl()));
@@ -152,7 +152,7 @@ class RepoAnalysisRequestedServiceTest {
     Instant now = Instant.now();
     RepoAnalysisJob job = RepoAnalysisJob.pending(repoUrl, sha, jobId, now);
     when(jobStore.findById(jobId)).thenReturn(Optional.of(job));
-    when(analyzerService.analyze(repoUrl)).thenThrow(new IllegalStateException("boom"));
+    when(analyzerService.analyze(repoUrl, sha)).thenThrow(new IllegalStateException("boom"));
 
     service.accept(new RepoAnalysisRequested(jobId, repoUrl.canonicalUrl()));
 
