@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.huocode.api.endpoint.rest.model.AnalysisResult;
 import io.huocode.api.endpoint.rest.model.AnalysisWindow;
+import io.huocode.api.endpoint.rest.model.AsyncFailureCode;
 import io.huocode.api.file.bucket.BucketConf;
 import io.huocode.api.model.ActiveJobRef;
 import io.huocode.api.model.RepoAnalysisJob;
@@ -165,7 +166,7 @@ class S3JobStoreTest {
   }
 
   @Test
-  void count_active_lists_all_active_pointer_objects() {
+  void count_active_lists_only_live_active_pointer_objects() {
     when(s3Client.listObjectsV2(any(ListObjectsV2Request.class)))
         .thenReturn(
             ListObjectsV2Response.builder()
@@ -174,6 +175,7 @@ class S3JobStoreTest {
                     S3Object.builder().key("jobs/active/d/e/f.json").build())
                 .isTruncated(false)
                 .build());
+    stubLiveRefs();
 
     assertEquals(2L, store.countActive());
 
@@ -182,6 +184,34 @@ class S3JobStoreTest {
     verify(s3Client).listObjectsV2(request.capture());
     assertEquals("jobs/active/", request.getValue().prefix());
     assertEquals(BUCKET, request.getValue().bucket());
+  }
+
+  @Test
+  void count_active_ignores_pointers_to_terminal_jobs() {
+    when(s3Client.listObjectsV2(any(ListObjectsV2Request.class)))
+        .thenReturn(
+            ListObjectsV2Response.builder()
+                .contents(S3Object.builder().key("jobs/active/a/b/c.json").build())
+                .isTruncated(false)
+                .build());
+    when(s3Client.getObject(any(GetObjectRequest.class), any(ResponseTransformer.class)))
+        .thenAnswer(
+            invocation -> {
+              GetObjectRequest request = invocation.getArgument(0);
+              if (request.key().startsWith("jobs/active/")) {
+                return ResponseBytes.fromByteArray(
+                    GetObjectResponse.builder().build(),
+                    writeRef(new ActiveJobRef(jobId, now)).getBytes(StandardCharsets.UTF_8));
+              }
+              RepoAnalysisJob failed =
+                  RepoAnalysisJob.pending(repoUrl, sha, jobId, now)
+                      .failed(AsyncFailureCode.ANALYSIS_TIMEOUT);
+              return ResponseBytes.fromByteArray(
+                  GetObjectResponse.builder().build(),
+                  write(failed).getBytes(StandardCharsets.UTF_8));
+            });
+
+    assertEquals(0L, store.countActive());
   }
 
   @Test
@@ -198,8 +228,24 @@ class S3JobStoreTest {
                 .contents(S3Object.builder().key("jobs/active/d/e/f.json").build())
                 .isTruncated(false)
                 .build());
+    stubLiveRefs();
 
     assertEquals(2L, store.countActive());
+  }
+
+  private void stubLiveRefs() {
+    when(s3Client.getObject(any(GetObjectRequest.class), any(ResponseTransformer.class)))
+        .thenAnswer(
+            invocation -> {
+              GetObjectRequest request = invocation.getArgument(0);
+              if (request.key().startsWith("jobs/active/")) {
+                return ResponseBytes.fromByteArray(
+                    GetObjectResponse.builder().build(),
+                    writeRef(new ActiveJobRef(jobId, now)).getBytes(StandardCharsets.UTF_8));
+              }
+              return ResponseBytes.fromByteArray(
+                  GetObjectResponse.builder().build(), write(job).getBytes(StandardCharsets.UTF_8));
+            });
   }
 
   @Test

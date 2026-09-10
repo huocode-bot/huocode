@@ -22,6 +22,7 @@ import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
+import software.amazon.awssdk.services.s3.model.S3Object;
 
 @Component
 @RequiredArgsConstructor
@@ -42,7 +43,14 @@ public class S3JobStore implements JobStore {
   @Override
   public Optional<RepoAnalysisJob> findActive(RepoUrl repoUrl, String commitSha) {
     Optional<ActiveJobRef> ref = find(activeKey(repoUrl, commitSha), ActiveJobRef.class);
-    return ref.map(activeJobRef -> activeJobRef.getJobId()).flatMap(this::findById);
+    if (ref.isEmpty()) {
+      return Optional.empty();
+    }
+    Optional<RepoAnalysisJob> job = findById(ref.get().getJobId());
+    if (job.isEmpty() || job.get().isTerminal()) {
+      return Optional.empty();
+    }
+    return job;
   }
 
   @Override
@@ -56,10 +64,23 @@ public class S3JobStore implements JobStore {
         request.continuationToken(continuationToken);
       }
       ListObjectsV2Response response = bucketConf.getS3Client().listObjectsV2(request.build());
-      count += response.contents().size();
+      for (S3Object object : response.contents()) {
+        if (isLiveRef(object.key())) {
+          count++;
+        }
+      }
       continuationToken = response.isTruncated() ? response.nextContinuationToken() : null;
     } while (continuationToken != null);
     return count;
+  }
+
+  private boolean isLiveRef(String key) {
+    Optional<ActiveJobRef> ref = find(key, ActiveJobRef.class);
+    if (ref.isEmpty()) {
+      return false;
+    }
+    Optional<RepoAnalysisJob> job = findById(ref.get().getJobId());
+    return job.isPresent() && !job.get().isTerminal();
   }
 
   @Override

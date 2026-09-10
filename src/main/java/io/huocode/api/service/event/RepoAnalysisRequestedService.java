@@ -42,11 +42,19 @@ public class RepoAnalysisRequestedService implements Consumer<RepoAnalysisReques
       jobStore.save(job.started(Instant.now()));
       AnalysisResult result = analyzerService.analyze(repoUrl, job.getCommitSha());
       jobStore.save(job.completed(result));
-      jobStore.clearActive(repoUrl, job.getCommitSha(), job.getJobId());
+      clearActiveQuietly(repoUrl, job);
     } catch (GitHubRateLimitReachedException e) {
       fail(job, AsyncFailureCode.GITHUB_RATE_LIMIT_REACHED, e);
     } catch (Exception e) {
       fail(job, AsyncFailureCode.ANALYSIS_TIMEOUT, e);
+    }
+  }
+
+  private void clearActiveQuietly(RepoUrl repoUrl, RepoAnalysisJob job) {
+    try {
+      jobStore.clearActive(repoUrl, job.getCommitSha(), job.getJobId());
+    } catch (RuntimeException e) {
+      log.warn("could not clear active pointer for completed job {}", job.getJobId(), e);
     }
   }
 

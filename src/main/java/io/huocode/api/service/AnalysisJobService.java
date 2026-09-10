@@ -24,10 +24,12 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class AnalysisJobService {
 
   private final GitHubApiPort gitHubApiPort;
@@ -93,7 +95,7 @@ public class AnalysisJobService {
             .findById(jobId)
             .orElseThrow(() -> new JobNotFoundException("no analysis job for " + jobId));
     if (job.isExpired(properties.getJobTtl(), Instant.now())) {
-      jobStore.delete(jobId);
+      deleteQuietly(jobId);
       throw new JobNotFoundException("analysis job " + jobId + " expired");
     }
     return analysisJobMapper.toResponse(job);
@@ -114,5 +116,13 @@ public class AnalysisJobService {
     eventProducer.accept(
         List.of(new RepoAnalysisRequested(job.getJobId(), repoUrl.canonicalUrl())));
     return job.getJobId();
+  }
+
+  private void deleteQuietly(UUID jobId) {
+    try {
+      jobStore.delete(jobId);
+    } catch (RuntimeException e) {
+      log.warn("could not delete expired analysis job {}", jobId, e);
+    }
   }
 }
