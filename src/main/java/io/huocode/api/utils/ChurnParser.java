@@ -28,25 +28,25 @@ public final class ChurnParser {
     return BOT_PATTERN.matcher(author).matches();
   }
 
-  public static RepoChurn parse(String logOutput) {
+  public static RepoChurn aggregate(List<CommitChurn> commits) {
     Map<String, Integer> commitsByPath = new HashMap<>();
     Map<String, Set<String>> authorsByPath = new HashMap<>();
     List<Instant> dates = new ArrayList<>();
     Set<String> distinctAuthors = new HashSet<>();
     int commitsAnalyzed = 0;
 
-    for (String rawBlock : logOutput.split("\u001e")) {
-      Optional<Block> parsed = parseBlock(rawBlock);
-      if (parsed.isEmpty()) {
+    for (CommitChurn commit : commits) {
+      if (isBot(commit.author())) {
         continue;
       }
-      Block block = parsed.get();
       commitsAnalyzed++;
-      distinctAuthors.add(block.author());
-      block.date().ifPresent(dates::add);
-      for (String path : block.paths()) {
+      distinctAuthors.add(commit.author());
+      if (commit.date() != null) {
+        dates.add(commit.date());
+      }
+      for (String path : commit.paths()) {
         commitsByPath.merge(path, 1, Integer::sum);
-        authorsByPath.computeIfAbsent(path, ignored -> new HashSet<>()).add(block.author());
+        authorsByPath.computeIfAbsent(path, ignored -> new HashSet<>()).add(commit.author());
       }
     }
     return new RepoChurn(
@@ -54,7 +54,17 @@ public final class ChurnParser {
         window(commitsAnalyzed, dates, distinctAuthors));
   }
 
-  private static Optional<Block> parseBlock(String rawBlock) {
+  public record CommitChurn(String author, Instant date, List<String> paths) {}
+
+  public static RepoChurn parse(String logOutput) {
+    List<CommitChurn> commits = new ArrayList<>();
+    for (String rawBlock : logOutput.split("\u001e")) {
+      parseBlock(rawBlock).ifPresent(commits::add);
+    }
+    return aggregate(commits);
+  }
+
+  private static Optional<CommitChurn> parseBlock(String rawBlock) {
     if (rawBlock.isEmpty()) {
       return Optional.empty();
     }
@@ -74,7 +84,7 @@ public final class ChurnParser {
         paths.add(path);
       }
     }
-    return Optional.of(new Block(author, parseDate(header[1]), paths));
+    return Optional.of(new CommitChurn(author, parseDate(header[1]).orElse(null), paths));
   }
 
   private static Map<String, Churn> aggregateChurn(
@@ -118,6 +128,4 @@ public final class ChurnParser {
     }
     return path;
   }
-
-  private record Block(String author, Optional<Instant> date, List<String> paths) {}
 }

@@ -6,7 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.huocode.api.TestGitRepos;
-import io.huocode.api.adapter.git.FileUrlGitCliAdapter;
+import io.huocode.api.adapter.git.FileUrlScmAdapter;
 import io.huocode.api.adapter.pmd.PmdAdapter;
 import io.huocode.api.conf.AnalysisProperties;
 import io.huocode.api.endpoint.rest.model.AnalysisResult;
@@ -75,7 +75,7 @@ class RepoAggregatorTest {
     RepoAggregator aggregator =
         new RepoAggregator(
             new RetrievalStrategySelector(PROPERTIES),
-            new CloneRetriever(new FileUrlGitCliAdapter(PROPERTIES, source)),
+            new CloneRetriever(new FileUrlScmAdapter(PROPERTIES, source)),
             new ApiDirectRetriever(port, PROPERTIES),
             port,
             new PmdAdapter(),
@@ -136,7 +136,7 @@ class RepoAggregatorTest {
     RepoAggregator aggregator =
         new RepoAggregator(
             new RetrievalStrategySelector(PROPERTIES),
-            new CloneRetriever(new FileUrlGitCliAdapter(PROPERTIES, temp.resolve("unused"))),
+            new CloneRetriever(new FileUrlScmAdapter(PROPERTIES, temp.resolve("unused"))),
             new ApiDirectRetriever(port, PROPERTIES),
             port,
             new PmdAdapter(),
@@ -200,7 +200,7 @@ class RepoAggregatorTest {
     RepoAggregator aggregator =
         new RepoAggregator(
             new RetrievalStrategySelector(smallLimits),
-            new CloneRetriever(new FileUrlGitCliAdapter(smallLimits, temp.resolve("unused"))),
+            new CloneRetriever(new FileUrlScmAdapter(smallLimits, temp.resolve("unused"))),
             new ApiDirectRetriever(port, smallLimits),
             port,
             new PmdAdapter(),

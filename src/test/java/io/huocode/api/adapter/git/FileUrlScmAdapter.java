@@ -4,11 +4,11 @@ import io.huocode.api.conf.AnalysisProperties;
 import io.huocode.api.model.RepoUrl;
 import java.nio.file.Path;
 
-public class FileUrlGitCliAdapter extends GitCliAdapter {
+public class FileUrlScmAdapter extends JGitScmAdapter {
 
   private final Path source;
 
-  public FileUrlGitCliAdapter(AnalysisProperties properties, Path source) {
+  public FileUrlScmAdapter(AnalysisProperties properties, Path source) {
     super(properties);
     this.source = source;
   }

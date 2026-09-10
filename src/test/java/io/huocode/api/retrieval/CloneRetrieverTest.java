@@ -3,7 +3,7 @@ package io.huocode.api.retrieval;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import io.huocode.api.TestGitRepos;
-import io.huocode.api.adapter.git.FileUrlGitCliAdapter;
+import io.huocode.api.adapter.git.FileUrlScmAdapter;
 import io.huocode.api.conf.AnalysisProperties;
 import io.huocode.api.model.Churn;
 import io.huocode.api.model.RepoUrl;
@@ -47,7 +47,7 @@ class CloneRetrieverTest {
     TestGitRepos.write(source, "A.java", "class A { int x; }\n");
     TestGitRepos.commit(source, "second commit");
 
-    CloneRetriever retriever = new CloneRetriever(new FileUrlGitCliAdapter(PROPERTIES, source));
+    CloneRetriever retriever = new CloneRetriever(new FileUrlScmAdapter(PROPERTIES, source));
     CloneRetrieverData data =
         retriever.retrieve(new RepoUrl("owner", "repo"), temp.resolve("work"));
 

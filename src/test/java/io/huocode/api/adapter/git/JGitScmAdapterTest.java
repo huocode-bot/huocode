@@ -17,7 +17,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-class GitCliAdapterTest {
+class JGitScmAdapterTest {
 
   private static final AnalysisProperties PROPERTIES =
       new AnalysisProperties(
@@ -40,11 +40,11 @@ class GitCliAdapterTest {
 
   @TempDir Path temp;
 
-  private FileUrlGitCliAdapter fileAdapter;
+  private FileUrlScmAdapter fileAdapter;
 
   @BeforeEach
   void setUp() {
-    fileAdapter = new FileUrlGitCliAdapter(PROPERTIES, temp.resolve("source"));
+    fileAdapter = new FileUrlScmAdapter(PROPERTIES, temp.resolve("source"));
   }
 
   @Test
