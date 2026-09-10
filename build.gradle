@@ -202,9 +202,8 @@ implementation 'net.sourceforge.pmd:pmd-java:7.27.0'
 implementation 'org.mapstruct:mapstruct:1.6.3'
 annotationProcessor 'org.mapstruct:mapstruct-processor:1.6.3'
 annotationProcessor 'org.projectlombok:lombok-mapstruct-binding:0.2.0'
-implementation 'io.huocode:huocode-f72de8a7-gen:latest'
-
 implementation 'org.eclipse.jgit:org.eclipse.jgit:7.1.1.202505221757-r'
+implementation 'io.huocode:huocode-f72de8a7-gen:latest'
 
 implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.5.0'
 }
