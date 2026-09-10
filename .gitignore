@@ -41,6 +41,3 @@ out/
 
 ### Mac OS ###
 .DS_Store
-
-### HuoCode secrets ###
-/huocode.secret.txt
