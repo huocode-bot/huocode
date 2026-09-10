@@ -1,0 +1,26 @@
+name: Feature request
+description: Suggest an improvement or a new capability
+labels: [enhancement]
+body:
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use case
+      description: What are you trying to achieve that HuoCode does not cover yet?
+    validations:
+      required: true
+  - type: textarea
+    id: approach
+    attributes:
+      label: Suggested approach
+      description: Optional. Any technical direction you have in mind.
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Related scope
+      options:
+        - Analysis / scoring
+        - Language support
+        - API / performance
+        - Documentation
+        - Other

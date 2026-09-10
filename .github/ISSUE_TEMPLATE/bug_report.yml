@@ -1,0 +1,37 @@
+name: Bug report
+description: Something does not behave as documented
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what did you get instead?
+    validations:
+      required: true
+  - type: input
+    id: repository
+    attributes:
+      label: Repository analyzed
+      description: The GitHub repository (owner/repo) that triggered the issue, if relevant.
+      placeholder: owner/repo
+  - type: dropdown
+    id: step
+    attributes:
+      label: Where did it happen?
+      options:
+        - Triggering an analysis (POST /analyze)
+        - Polling a job (GET /analyze/{jobId})
+        - Viewing a report (/report/{owner}/{repo})
+        - Other API or client issue
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Include the exact request (payload, parameters) if relevant.
+  - type: input
+    id: api-version
+    attributes:
+      label: API version
+      description: Version announced in doc/api.yml.
+      placeholder: 1.3.0
