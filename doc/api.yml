@@ -21,6 +21,8 @@ info:
   contact:
     name: HuoCode
 externalDocs:
+  # TODO: point this at the real frontend "How it works" page once the production
+  # frontend domain exists. Placeholder host until then — not a working URL.
   description: Full methodology ("How it works" page)
   url: https://huocode.example.com/how-it-works
 
@@ -538,7 +540,10 @@ components:
           type: integer
           minimum: 0
           maximum: 100
-          description: Aggregate Code Health Score across all analyzed files (spec section 3.10). Omitted when relativeScoringEnabled = false.
+          description: >
+            Aggregate Code Health Score, the unweighted average of codeHealthScore
+            across all analyzed files (spec section 3.10). Omitted when
+            relativeScoringEnabled = false.
           example: 78
         summary:
           $ref: '#/components/schemas/QuadrantSummary'
@@ -547,10 +552,10 @@ components:
           items:
             $ref: '#/components/schemas/FileResult'
           description: >
-            One entry per file considered for analysis. No size cap or pagination is
-            defined yet for v1 — an open item (spec section 6.4 / 15) to resolve
-            (truncate with a remainder count, paginate, or accept as-is) before this
-            is exercised by a very large repo.
+            One entry per file considered for analysis. Bounded by construction via the
+            file-count thresholds of the sync, chunked and async paths (spec sections
+            4.2/4.3); a paginated drill-down is available via
+            GET /report/{owner}/{repo}/files (spec section 6.4).
         top5:
           type: array
           items:
@@ -569,7 +574,11 @@ components:
     Quadrant:
       type: string
       enum: [hotspot, complex_stable, frequent_simple, healthy]
-      description: Which combination of complexity/churn this file falls into (spec section 3.8) — tells consumers *why*, so they can present the matching explanation.
+      description: >
+        Which combination of complexity/churn this file falls into (spec section 3.8) —
+        tells consumers *why*, so they can present the matching explanation. A signal is
+        "high" at a percentile of 70 or above in v1: hotspot = both high,
+        complex_stable = complexity only, frequent_simple = churn only, healthy = neither.
 
     FileErrorCode:
       type: string
@@ -601,12 +610,19 @@ components:
               example: 38
             authors:
               type: integer
+              description: >
+                Number of distinct authors who touched the file. Exposed as a
+                transparency signal (spec section 3.11); deliberately NOT part of the
+                score formula, which uses the commit count only.
               example: 6
         complexityPercentile:
           type: integer
           minimum: 0
           maximum: 100
-          description: Present only if status = analyzed AND relativeScoringEnabled = true.
+          description: >
+            Present only if status = analyzed AND relativeScoringEnabled = true.
+            Share of analyzed files with a value at or below this file's value
+            (CDF, ×100): the file with the highest raw value gets 100 (spec section 3.7).
           example: 95
         churnPercentile:
           type: integer
@@ -619,10 +635,13 @@ components:
           minimum: 0
           maximum: 100
           description: >
-            100 = healthiest, 0 = most at-risk (spec section 3.7). A plain integer —
-            no letter grade is computed or transmitted. Present only if status = analyzed
-            AND relativeScoringEnabled = true.
-          example: 9
+            100 = healthiest, 0 = most at-risk (spec section 3.7). Computed as
+            (complexityPercentile × churnPercentile) / 100 for the combined risk,
+            then round(100 - risk) — a product, not a sum or average: a file must be
+            both complex AND frequently modified to see its score drop sharply. A plain
+            integer — no letter grade is computed or transmitted. Present only if
+            status = analyzed AND relativeScoringEnabled = true.
+          example: 16
         quadrant:
           $ref: '#/components/schemas/Quadrant'
         exceedsCommonComplexityThreshold:
@@ -654,4 +673,4 @@ components:
             Clear, actionable technical message for logs/docs/Swagger only — never
             intended for direct display to end users. Consumers should map `code`
             to their own presentation of the error.
-          example: "This repo exceeds the 2000-file limit supported in v1."
+          example: "This repo exceeds the 20,000-file limit supported for analysis."

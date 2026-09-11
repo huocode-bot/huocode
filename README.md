@@ -50,6 +50,11 @@ They are never silently ignored, never blended into the scores. The language roa
   (low complexity *and* rarely modified). Scores near 0 are **hotspots**: complex and frequently
   changed, i.e. the files worth reviewing first. `repoHealthScore` is the unweighted average across
   all analyzed files.
+- The combined risk is the **product** of the complexity and churn percentiles —
+  `100 − (complexityPercentile × churnPercentile) / 100` — not a sum or an average: a file must be
+  *both* complex and frequently modified to see its score drop sharply, which is what makes a true
+  hotspot stand out. A complex-but-stable file is shown with a healthy score and stays visible through
+  the `complex_stable` quadrant instead.
 - Scoring is **relative within the analyzed repository** (percentile normalization), never a
   universal absolute scale. Below 15 analyzable files, relative scoring is disabled entirely and
   only the raw complexity signal is reported. Fields are omitted, never fabricated.
