@@ -60,11 +60,11 @@ class ScoreEngineTest {
     assertEquals(QuadrantKind.HOTSPOT, score.scoresByPath().get("hot.java").quadrant());
 
     assertEquals(94, score.scoresByPath().get("f15.java").complexityPercentile());
-    assertEquals(6, score.scoresByPath().get("f15.java").codeHealthScore());
+    assertEquals(12, score.scoresByPath().get("f15.java").codeHealthScore());
     assertEquals(QuadrantKind.HOTSPOT, score.scoresByPath().get("f15.java").quadrant());
     assertEquals(QuadrantKind.HEALTHY, score.scoresByPath().get("f1.java").quadrant());
 
-    assertEquals(47, score.repoHealthScore());
+    assertEquals(63, score.repoHealthScore());
     assertEquals(5, score.quadrantCounts().get(QuadrantKind.HOTSPOT));
     assertEquals(11, score.quadrantCounts().get(QuadrantKind.HEALTHY));
     assertEquals(5, score.top5().size());
@@ -110,7 +110,49 @@ class ScoreEngineTest {
       assertEquals(93, score.scoresByPath().get("tiny" + i + ".java").complexityPercentile());
     }
     assertEquals(100, score.scoresByPath().get("big.java").complexityPercentile());
-    assertEquals(7, score.repoHealthScore());
+    assertEquals(13, score.repoHealthScore());
+  }
+
+  @Test
+  void score_combines_percentiles_as_a_product_not_a_sum_or_average() {
+    List<FileMeasurement> measurements = new ArrayList<>();
+    for (int i = 1; i <= 8; i++) {
+      measurements.add(analyzed("c" + i + ".java", i, 1));
+    }
+    measurements.add(analyzed("c9.java", 9, 2));
+    measurements.add(analyzed("c10.java", 10, 3));
+    measurements.add(analyzed("c11.java", 11, 5));
+    measurements.add(analyzed("c12.java", 12, 8));
+    measurements.add(analyzed("c13.java", 13, 13));
+    measurements.add(analyzed("complex.java", 900, 1));
+    measurements.add(analyzed("churny.java", 1, 40));
+    measurements.add(analyzed("hot.java", 1000, 1000));
+
+    RepoScore score = engine.score(measurements);
+
+    // A true hotspot (both signals high) is strictly the worst.
+    assertEquals(0, score.scoresByPath().get("hot.java").codeHealthScore());
+    assertEquals(QuadrantKind.HOTSPOT, score.scoresByPath().get("hot.java").quadrant());
+    assertEquals("hot.java", score.top5().get(0).path());
+
+    // High complexity alone (rarely changed) keeps a healthy score: the product
+    // encodes the AND semantics, unlike a sum or average that a single high axis
+    // would defeat.
+    assertEquals(47, score.scoresByPath().get("complex.java").codeHealthScore());
+    assertEquals(QuadrantKind.COMPLEX_STABLE, score.scoresByPath().get("complex.java").quadrant());
+    assertTrue(
+        score.scoresByPath().get("complex.java").codeHealthScore()
+            > score.scoresByPath().get("hot.java").codeHealthScore());
+
+    // High churn alone (very simple file) stays near the top of the range.
+    assertEquals(88, score.scoresByPath().get("churny.java").codeHealthScore());
+    assertEquals(QuadrantKind.FREQUENT_SIMPLE, score.scoresByPath().get("churny.java").quadrant());
+    assertTrue(
+        score.scoresByPath().get("churny.java").codeHealthScore()
+            > score.scoresByPath().get("complex.java").codeHealthScore());
+
+    assertEquals(23, score.scoresByPath().get("c13.java").codeHealthScore());
+    assertEquals(93, score.scoresByPath().get("c1.java").codeHealthScore());
   }
 
   private static FileMeasurement analyzed(String path, int complexity, int churn) {

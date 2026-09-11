@@ -60,7 +60,7 @@ public class ScoreEngine {
       for (FileMeasurement measurement : analyzed) {
         int complexityPercentile = complexityPercentiles.get(measurement.path());
         int churnPercentile = churnPercentiles.get(measurement.path());
-        int codeHealthScore = Math.round(100 - (complexityPercentile + churnPercentile) / 2.0f);
+        int codeHealthScore = Math.round(100 - complexityPercentile * churnPercentile / 100.0f);
         FileScore score =
             new FileScore(
                 measurement.path(),
@@ -141,7 +141,7 @@ public class ScoreEngine {
     scores.forEach(top::add);
     top.sort(
         Comparator.comparingInt(
-                (FileScore score) -> score.complexityPercentile() + score.churnPercentile())
+                (FileScore score) -> score.complexityPercentile() * score.churnPercentile())
             .reversed()
             .thenComparing(FileScore::path));
     return top.size() <= 5 ? List.copyOf(top) : List.copyOf(top.subList(0, 5));
