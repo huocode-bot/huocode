@@ -7,7 +7,6 @@ import io.huocode.api.endpoint.rest.model.ListReportFiles200Response;
 import io.huocode.api.mapper.ReportFilesMapper;
 import io.huocode.api.model.RepoUrl;
 import io.huocode.api.service.RepoUrlAnalyzerService;
-import java.net.URI;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -19,15 +18,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class ReportController {
 
-  private static final List<GetExampleRepos200ResponseInner> EXAMPLES =
-      List.of(
-          example("spring-projects/spring-boot"),
-          example("expressjs/express"),
-          example("facebook/react"),
-          example("apache/kafka"),
-          example("gin-gonic/gin"));
-
   private final RepoUrlAnalyzerService analyzerService;
+  private final List<GetExampleRepos200ResponseInner> exampleRepos;
 
   @GetMapping("/report/{owner}/{repo}")
   public AnalysisResult getPublicReport(@PathVariable String owner, @PathVariable String repo) {
@@ -50,12 +42,6 @@ public class ReportController {
 
   @GetMapping("/examples")
   public List<GetExampleRepos200ResponseInner> getExampleRepos() {
-    return EXAMPLES;
-  }
-
-  private static GetExampleRepos200ResponseInner example(String repo) {
-    return new GetExampleRepos200ResponseInner()
-        .repo(repo)
-        .repoUrl(URI.create("https://github.com/" + repo));
+    return exampleRepos;
   }
 }

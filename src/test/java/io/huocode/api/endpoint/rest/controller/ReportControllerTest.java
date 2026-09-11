@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import io.huocode.api.conf.ExamplesConfig;
 import io.huocode.api.endpoint.rest.model.AnalysisResult;
 import io.huocode.api.endpoint.rest.model.AnalysisWindow;
 import io.huocode.api.endpoint.rest.model.ErrorResponse;
@@ -23,9 +24,13 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.annotation.Import;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
 @WebMvcTest(ReportController.class)
+@Import(ExamplesConfig.class)
+@TestPropertySource(properties = "huocode.examples=foo/bar,baz/qux")
 class ReportControllerTest {
 
   @Autowired private MockMvc mockMvc;
@@ -90,13 +95,13 @@ class ReportControllerTest {
   }
 
   @Test
-  void examples_returns_suggested_repos() throws Exception {
+  void examples_returns_configured_repos() throws Exception {
     mockMvc
         .perform(get("/examples"))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$[0].repo").value("spring-projects/spring-boot"))
-        .andExpect(
-            jsonPath("$[0].repoUrl").value("https://github.com/spring-projects/spring-boot"));
+        .andExpect(jsonPath("$[0].repo").value("foo/bar"))
+        .andExpect(jsonPath("$[0].repoUrl").value("https://github.com/foo/bar"))
+        .andExpect(jsonPath("$[1].repo").value("baz/qux"));
   }
 
   private AnalysisResult aResult() {
