@@ -234,6 +234,9 @@ paths:
       description: >
         Powers the landing page's clickable example repos (see spec section 2.3),
         so a first visitor can get a result without already having a repo URL in mind.
+        The list is configured server-side via the huocode.examples env var and stays
+        Java-only for v1 (spec section 16.9); an unset env var yields an empty array,
+        which the frontend must render as simply having no clickable examples.
       operationId: getExampleRepos
       responses:
         '200':
@@ -247,11 +250,11 @@ paths:
                   properties:
                     repo:
                       type: string
-                      example: "expressjs/express"
+                      example: "spring-projects/spring-boot"
                     repoUrl:
                       type: string
                       format: uri
-                      example: "https://github.com/expressjs/express"
+                      example: "https://github.com/spring-projects/spring-boot"
 
 components:
 
