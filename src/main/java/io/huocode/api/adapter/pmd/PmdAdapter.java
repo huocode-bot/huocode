@@ -44,7 +44,10 @@ public class PmdAdapter implements ComplexityPort {
         int complexity = complexityOf(violation.getDescription());
         if (complexity > 0) {
           String path = relativePath(repo, violation.getFileId());
-          complexityByPath.merge(path, complexity, Integer::sum);
+          // The rule reports one violation per method (methodReportLevel=1). We keep the worst
+          // method complexity of the file, which matches the industry per-function convention
+          // (McCabe/SEI > 10, Sonar cognitive complexity) for the "complex" flag.
+          complexityByPath.merge(path, complexity, Math::max);
         }
       }
       for (Report.ProcessingError error : report.getProcessingErrors()) {

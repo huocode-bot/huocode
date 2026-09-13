@@ -18,7 +18,7 @@ class PmdAdapterTest {
   @TempDir Path temp;
 
   @Test
-  void analyze_sums_cyclomatic_complexity_per_file() throws Exception {
+  void analyze_keeps_worst_method_complexity_per_file() throws Exception {
     Files.writeString(
         temp.resolve("Foo.java"),
         "package sample;\n"
@@ -32,9 +32,11 @@ class PmdAdapterTest {
             + "  }\n"
             + "}\n");
 
+    // Per-method CC: simple=1, branchy=2, loops=4 (for + while + if). We keep the worst method
+    // (4), not the sum (7), to match the industry per-function complexity convention.
     ComplexityResult result = adapter.analyze(temp, List.of("Foo.java"));
 
-    assertEquals(Map.of("Foo.java", 7), result.complexityByPath());
+    assertEquals(Map.of("Foo.java", 4), result.complexityByPath());
     assertTrue(result.parseErrorPaths().isEmpty());
   }
 

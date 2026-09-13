@@ -585,10 +585,10 @@ components:
       type: string
       enum: [hotspot, complex_stable, frequent_simple, healthy]
       description: >
-        Which combination of complexity/churn this file falls into (scoring fiche v1.2,
-        docs/scoring-v1.2.md) — tells consumers *why*, so they can present the matching
-        explanation. "complex" = raw cyclomatic complexity above the common-complexity
-        threshold (10); "active" = the double guard: relative churn (effective lines / LOC)
+        Which combination of complexity/churn this file falls into (scoring fiche v1.3,
+        docs/scoring-v1.3.md) — tells consumers *why*, so they can present the matching
+        explanation. "complex" = worst-method cyclomatic complexity above the
+        common-complexity threshold (10); "active" = the double guard: relative churn (effective lines / LOC)
         at least 2 sigma above the repo mean AND effective lines >= 50, OR effective lines
         at least 2 sigma above the repo mean. hotspot = complex AND active,
         complex_stable = complex only, frequent_simple = active only, healthy = neither.
@@ -611,8 +611,11 @@ components:
           $ref: '#/components/schemas/FileStatus'
         complexity:
           type: number
-          description: Raw cyclomatic complexity (PMD). Present only if status = analyzed.
-          example: 42
+          description: >
+            Worst-method cyclomatic complexity of the file (PMD, method-level).
+            Matches the industry per-function convention (McCabe/SEI > 10, Sonar
+            cognitive complexity). Present only if status = analyzed.
+          example: 12
         churn:
           type: object
           description: Present only if status = analyzed.
@@ -632,7 +635,7 @@ components:
               type: integer
               description: >
                 Sum of added content lines across all commits in the analyzed window
-                (line-based churn, scoring fiche v1.2). Blank lines are counted; pure
+                (line-based churn, scoring fiche v1.3). Blank lines are counted; pure
                 whitespace-only lines are not.
               example: 124
             linesDeleted:
@@ -641,7 +644,7 @@ components:
               example: 36
             effectiveLines:
               type: integer
-              description: linesAdded + linesDeleted — the volume used by the activity signal (v1.2).
+              description: linesAdded + linesDeleted — the volume used by the activity signal (v1.3).
               example: 160
         isTest:
           type: boolean
@@ -657,8 +660,8 @@ components:
           description: >
             Present only if status = analyzed AND relativeScoringEnabled = true.
             Share of analyzed files with a value at or below this file's value
-            (CDF, ×100): the file with the highest raw value gets 100 (scoring fiche v1.2).
-            Kept for display (treemap/scatter sizing); not part of the v1.2 score formula.
+            (CDF, ×100): the file with the highest raw value gets 100 (scoring fiche v1.3).
+            Kept for display (treemap/scatter sizing); not part of the v1.3 score formula.
           example: 95
         churnPercentile:
           type: integer
@@ -667,14 +670,14 @@ components:
           description: >
             Present only if status = analyzed AND relativeScoringEnabled = true.
             Percentile of effectiveLines (line-based churn). Kept for display; not part of
-            the v1.2 score formula.
+            the v1.3 score formula.
           example: 88
         codeHealthScore:
           type: integer
           minimum: 0
           maximum: 100
           description: >
-            100 = healthiest, 0 = most at-risk (scoring fiche v1.2). Computed as
+            100 = healthiest, 0 = most at-risk (scoring fiche v1.3). Computed as
             round(max(20, 100 - 55*cn - 45*an)) where cn is the normalized common-complexity
             penalty (0 when complexity <= 10, min(0.6, (cc - 10) / 40) otherwise) and an is
             the normalized activity penalty (0 when not active, min(1, log(1 + r) /
@@ -686,10 +689,10 @@ components:
         exceedsCommonComplexityThreshold:
           type: boolean
           description: >
-            True when raw complexity > 10, a widely cited industry rule of thumb (spec section 3.9).
-            Present only if status = analyzed. Unlike the relative-scoring fields above, this is
-            available even when relativeScoringEnabled = false, since it is an absolute, not a
-            relative, signal.
+            True when the worst-method complexity > 10, a widely cited industry rule of
+            thumb (spec section 3.9). Present only if status = analyzed. Unlike the
+            relative-scoring fields above, this is available even when
+            relativeScoringEnabled = false, since it is an absolute, not a relative, signal.
         unsupportedLanguage:
           type: string
           description: >
