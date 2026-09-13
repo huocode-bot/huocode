@@ -585,9 +585,7 @@ components:
       type: string
       enum: [hotspot, complex_stable, frequent_simple, healthy]
       description: >
-        Which combination of complexity/churn this file falls into (scoring fiche v1.3,
-        docs/scoring-v1.3.md) — tells consumers *why*, so they can present the matching
-        explanation. "complex" = worst-method cyclomatic complexity above the
+        "complex" = worst-method cyclomatic complexity above the
         common-complexity threshold (10); "active" = the double guard: relative churn (effective lines / LOC)
         at least 2 sigma above the repo mean AND effective lines >= 50, OR effective lines
         at least 2 sigma above the repo mean. hotspot = complex AND active,
