@@ -37,9 +37,9 @@ import org.springframework.stereotype.Component;
  * (path under /test/ or *Test.java / *IT.java) are excluded from the repository health score.
  *
  * <p>Since v1.3, complexity is the worst-method cyclomatic complexity of the file (PMD
- * methodReportLevel), which is compared to the industry per-function threshold
- * (McCabe/SEI > 10, Sonar cognitive complexity). The ratio effectiveLines / linesOfCode keeps
- * the relative code churn of CodeScene-style engineering standards.
+ * methodReportLevel), which is compared to the industry per-function threshold (McCabe/SEI > 10,
+ * Sonar cognitive complexity). The ratio effectiveLines / linesOfCode keeps the relative code churn
+ * of CodeScene-style engineering standards.
  */
 @Component
 @RequiredArgsConstructor
