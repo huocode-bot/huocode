@@ -22,7 +22,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 /**
- * Score engine for scoring fiche v1.2 (docs/scoring-v1.2.md).
+ * Score engine for scoring fiche v1.3 (docs/scoring-v1.3.md).
  *
  * <p>Activity is the relative code churn of CodeScene-style engineering standards: the ratio
  * effectiveLines / linesOfCode. A file is "active" when it is a double guard:
@@ -35,12 +35,17 @@ import org.springframework.stereotype.Component;
  *
  * <p>Score: round(max(20, 100 - 55*cn - 45*an)) where cn clamps at 0.6 and an at 1.0. Test files
  * (path under /test/ or *Test.java / *IT.java) are excluded from the repository health score.
+ *
+ * <p>Since v1.3, complexity is the worst-method cyclomatic complexity of the file (PMD
+ * methodReportLevel), which is compared to the industry per-function threshold (McCabe/SEI > 10,
+ * Sonar cognitive complexity). The ratio effectiveLines / linesOfCode keeps the relative code churn
+ * of CodeScene-style engineering standards.
  */
 @Component
 @RequiredArgsConstructor
 public class ScoreEngine {
 
-  public static final String SCORE_VERSION = "1.2";
+  public static final String SCORE_VERSION = "1.3";
 
   private static final int MIN_EFFECTIVE_LINES = 50;
   private static final double STDDEV_FACTOR = 2.0;

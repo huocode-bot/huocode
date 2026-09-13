@@ -40,7 +40,7 @@ class ScoreEngineTest {
   private final ScoreEngine engine = new ScoreEngine(PROPERTIES);
 
   @Test
-  void score_computes_v12_scores_quadrants_and_excludes_tests_from_repo_health() {
+  void score_computes_v13_scores_quadrants_and_excludes_tests_from_repo_health() {
     List<FileMeasurement> measurements = new ArrayList<>();
     for (int i = 1; i <= 16; i++) {
       // Never modified, 100-LOC file: truly healthy.
@@ -62,8 +62,10 @@ class ScoreEngineTest {
     assertEquals(20, score.scoresByPath().size());
     assertEquals(0, score.unanalyzedCount());
 
-    // Predictable with the v1.2 formula: activity is the double guard
+    // Predictable with the v1.3 formula: activity is the double guard
     // (r >= mean + 2 sigma & effective lines >= 50) OR effective lines >= mean + 2 sigma.
+    // complexity is the worst-method value (40 here) — a single god-method is flagged,
+    // whatever the (simulated) number of small methods around it.
     assertScore(score, "hot.java", 22, 100, 100, QuadrantKind.HOTSPOT);
     assertScore(score, "testHot.java", 22, 100, 100, QuadrantKind.HOTSPOT);
     assertScore(score, "onlyChurn.java", 55, 85, 100, QuadrantKind.FREQUENT_SIMPLE);
