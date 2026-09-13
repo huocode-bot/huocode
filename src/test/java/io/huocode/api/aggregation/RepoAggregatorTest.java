@@ -125,11 +125,11 @@ class RepoAggregatorTest {
       String path = "F" + i + ".java";
       paths.add(path);
       contents.put(path, javaSource(i, i));
-      churns.put(path, new Churn(i, 2));
+      churns.put(path, new Churn(i, 2, i == 16 ? 100000 : 0, 0));
     }
     paths.add("README.md");
     contents.put("README.md", "readme\n");
-    churns.put("README.md", new Churn(1, 1));
+    churns.put("README.md", new Churn(1, 1, 0, 0));
     StubGitHubApiPort port = new StubGitHubApiPort(paths.size(), "abc123", paths);
     port.contents = contents;
     port.churns = churns;
@@ -196,7 +196,7 @@ class RepoAggregatorTest {
             10);
     StubGitHubApiPort port = new StubGitHubApiPort(1, "abc", List.of("Big.java"));
     port.contents = Map.of("Big.java", "class Big {}\n");
-    port.churns = Map.of("Big.java", new Churn(1, 1));
+    port.churns = Map.of("Big.java", new Churn(1, 1, 0, 0));
     RepoAggregator aggregator =
         new RepoAggregator(
             new RetrievalStrategySelector(smallLimits),

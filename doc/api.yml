@@ -539,13 +539,20 @@ components:
             case repoHealthScore and summary are omitted entirely (not sent as null), and
             per-file percentile/score/quadrant fields are also omitted; only raw
             complexity/churn and the absolute complexity threshold remain meaningful.
+        scoreVersion:
+          type: string
+          description: >
+            Version of the scoring fiche used to compute this result ("1.2"). Consumers should
+            adapt their presentation based on this value instead of assuming a static formula.
+          example: "1.2"
         repoHealthScore:
           type: integer
           minimum: 0
           maximum: 100
           description: >
-            Aggregate Code Health Score, the unweighted average of codeHealthScore
-            across all analyzed files (spec section 3.10). Omitted when
+            Aggregate Code Health Score, the unweighted average of codeHealthScore across all
+            analyzed NON-test files (spec section 3.10). Test files are excluded — their churn
+            inflates scoring and would unfairly drag the health signal down. Omitted when
             relativeScoringEnabled = false.
           example: 78
         summary:
@@ -563,7 +570,7 @@ components:
           type: array
           items:
             type: string
-          description: Paths of the 5 files with the highest normalized risk score. Empty if relativeScoringEnabled = false.
+          description: Paths of the 5 files with the lowest codeHealthScore (most at risk). Empty if relativeScoringEnabled = false.
 
     FileStatus:
       type: string
@@ -578,10 +585,13 @@ components:
       type: string
       enum: [hotspot, complex_stable, frequent_simple, healthy]
       description: >
-        Which combination of complexity/churn this file falls into (spec section 3.8) —
-        tells consumers *why*, so they can present the matching explanation. A signal is
-        "high" at a percentile of 70 or above in v1: hotspot = both high,
-        complex_stable = complexity only, frequent_simple = churn only, healthy = neither.
+        Which combination of complexity/churn this file falls into (scoring fiche v1.2,
+        docs/scoring-v1.2.md) — tells consumers *why*, so they can present the matching
+        explanation. "complex" = raw cyclomatic complexity above the common-complexity
+        threshold (10); "active" = the double guard: relative churn (effective lines / LOC)
+        at least 2 sigma above the repo mean AND effective lines >= 50, OR effective lines
+        at least 2 sigma above the repo mean. hotspot = complex AND active,
+        complex_stable = complex only, frequent_simple = active only, healthy = neither.
 
     FileErrorCode:
       type: string
@@ -618,6 +628,28 @@ components:
                 transparency signal (spec section 3.11); deliberately NOT part of the
                 score formula, which uses the commit count only.
               example: 6
+            linesAdded:
+              type: integer
+              description: >
+                Sum of added content lines across all commits in the analyzed window
+                (line-based churn, scoring fiche v1.2). Blank lines are counted; pure
+                whitespace-only lines are not.
+              example: 124
+            linesDeleted:
+              type: integer
+              description: Sum of deleted content lines across all commits in the analyzed window.
+              example: 36
+            effectiveLines:
+              type: integer
+              description: linesAdded + linesDeleted — the volume used by the activity signal (v1.2).
+              example: 160
+        isTest:
+          type: boolean
+          description: >
+            True when the path is under a "/test/" segment or ends with Test.java / IT.java.
+            Test files are excluded from the repo health score and displayed with a distinct
+            test badge. Present only if status = analyzed.
+          example: false
         complexityPercentile:
           type: integer
           minimum: 0
@@ -625,25 +657,29 @@ components:
           description: >
             Present only if status = analyzed AND relativeScoringEnabled = true.
             Share of analyzed files with a value at or below this file's value
-            (CDF, ×100): the file with the highest raw value gets 100 (spec section 3.7).
+            (CDF, ×100): the file with the highest raw value gets 100 (scoring fiche v1.2).
+            Kept for display (treemap/scatter sizing); not part of the v1.2 score formula.
           example: 95
         churnPercentile:
           type: integer
           minimum: 0
           maximum: 100
-          description: Present only if status = analyzed AND relativeScoringEnabled = true.
+          description: >
+            Present only if status = analyzed AND relativeScoringEnabled = true.
+            Percentile of effectiveLines (line-based churn). Kept for display; not part of
+            the v1.2 score formula.
           example: 88
         codeHealthScore:
           type: integer
           minimum: 0
           maximum: 100
           description: >
-            100 = healthiest, 0 = most at-risk (spec section 3.7). Computed as
-            (complexityPercentile × churnPercentile) / 100 for the combined risk,
-            then round(100 - risk) — a product, not a sum or average: a file must be
-            both complex AND frequently modified to see its score drop sharply. A plain
-            integer — no letter grade is computed or transmitted. Present only if
-            status = analyzed AND relativeScoringEnabled = true.
+            100 = healthiest, 0 = most at-risk (scoring fiche v1.2). Computed as
+            round(max(20, 100 - 55*cn - 45*an)) where cn is the normalized common-complexity
+            penalty (0 when complexity <= 10, min(0.6, (cc - 10) / 40) otherwise) and an is
+            the normalized activity penalty (0 when not active, min(1, log(1 + r) /
+            log(1 + r_max)) when active). A plain integer — no letter grade is computed or
+            transmitted. Present only if status = analyzed AND relativeScoringEnabled = true.
           example: 16
         quadrant:
           $ref: '#/components/schemas/Quadrant'

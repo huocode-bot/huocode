@@ -126,7 +126,7 @@ class HttpGitHubApiAdapterTest {
   }
 
   @Test
-  void churnForPath_filters_bots_and_counts_authors() {
+  void churnForPath_filters_bots_and_counts_authors_and_lines() {
     stub(
         "/repos/owner/repo/commits",
         200,
@@ -137,7 +137,9 @@ class HttpGitHubApiAdapterTest {
             + ","
             + commitJson("c3", "dependabot[bot]", "2024-01-03T10:00:00Z")
             + "]");
-    assertEquals(new Churn(2, 2), adapter.churnForPath(REPO, "src/A.java", 500));
+    stub("/repos/owner/repo/commits/c1", 200, commitDetailJson("src/A.java", 3, 1));
+    stub("/repos/owner/repo/commits/c2", 200, commitDetailJson("src/A.java", 1, 0));
+    assertEquals(new Churn(2, 2, 4, 1), adapter.churnForPath(REPO, "src/A.java", 500));
   }
 
   @Test
@@ -146,7 +148,8 @@ class HttpGitHubApiAdapterTest {
     server.createContext(
         "/repos/owner/repo/commits",
         exchange -> {
-          Matcher matcher = PAGE_PARAM.matcher(exchange.getRequestURI().getRawQuery());
+          String query = exchange.getRequestURI().getRawQuery();
+          Matcher matcher = PAGE_PARAM.matcher(query == null ? "" : query);
           String page = matcher.find() ? matcher.group(1) : "1";
           requestedPages.add(page);
           String body = "1".equals(page) ? commitsJson(100, "octocat") : "[]";
@@ -157,8 +160,10 @@ class HttpGitHubApiAdapterTest {
           }
           exchange.close();
         });
-    assertEquals(new Churn(100, 1), adapter.churnForPath(REPO, "src/A.java", 500));
-    assertEquals(List.of("1", "2"), requestedPages);
+    // Commit-detail calls (one per non-bot commit) fall back to 0 lines here: no detail
+    // stub registered, so the shared handler answers with the commits array (no "files").
+    assertEquals(new Churn(100, 1, 0, 0), adapter.churnForPath(REPO, "src/A.java", 500));
+    assertEquals(List.of("1", "2"), requestedPages.stream().distinct().toList());
   }
 
   @Test
@@ -244,6 +249,16 @@ class HttpGitHubApiAdapterTest {
         + "\",\"date\":\""
         + date
         + "\"}}}";
+  }
+
+  private static String commitDetailJson(String path, int additions, int deletions) {
+    return "{\"files\":[{\"filename\":\""
+        + path
+        + "\",\"additions\":"
+        + additions
+        + ",\"deletions\":"
+        + deletions
+        + "}]}";
   }
 
   private static String commitsJson(int count, String login) {

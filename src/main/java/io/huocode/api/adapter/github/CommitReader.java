@@ -56,6 +56,30 @@ public final class CommitReader {
     return item.path("commit").path("author").path("name").asText("");
   }
 
+  public record FileLines(int added, int deleted) {}
+
+  public static Optional<FileLines> fileLines(
+      GitHubApiHttp http, RepoUrl repoUrl, String sha, String path) {
+    try {
+      JsonNode detail = http.getJson(repoUrl, http.repoPath(repoUrl) + "/commits/" + encode(sha));
+      for (JsonNode file : detail.path("files")) {
+        if (path.equals(file.path("filename").asText())) {
+          return Optional.of(
+              new FileLines(
+                  Math.max(0, file.path("additions").asInt(0)),
+                  Math.max(0, file.path("deletions").asInt(0))));
+        }
+      }
+      return Optional.empty();
+    } catch (RuntimeException e) {
+      return Optional.empty();
+    }
+  }
+
+  private static String encode(String value) {
+    return GitHubApiHttp.encodePath(value);
+  }
+
   public static Optional<Instant> dateOf(JsonNode item) {
     String date = item.path("commit").path("committer").path("date").asText(null);
     if (date == null) {

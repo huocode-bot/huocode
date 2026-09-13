@@ -39,8 +39,8 @@ class ChurnParserTest {
     assertEquals(2, churn.window().distinctAuthors());
     assertEquals(Instant.parse("2024-01-01T11:00:00Z"), churn.window().oldestCommitDate());
     assertEquals(Instant.parse("2024-01-02T11:00:00Z"), churn.window().newestCommitDate());
-    assertEquals(new Churn(2, 2), churn.churnByPath().get("src/A.java"));
-    assertEquals(new Churn(1, 1), churn.churnByPath().get("README.md"));
+    assertEquals(new Churn(2, 2, 3, 3), churn.churnByPath().get("src/A.java"));
+    assertEquals(new Churn(1, 1, 5, 0), churn.churnByPath().get("README.md"));
     assertFalse(churn.churnByPath().containsKey("package-lock.json"));
   }
 
@@ -53,8 +53,8 @@ class ChurnParserTest {
 
     RepoChurn churn = ChurnParser.parse(log);
 
-    assertEquals(new Churn(1, 1), churn.churnByPath().get("assets/logo.png"));
-    assertEquals(new Churn(1, 1), churn.churnByPath().get("new.txt"));
+    assertEquals(new Churn(1, 1, 0, 0), churn.churnByPath().get("assets/logo.png"));
+    assertEquals(new Churn(1, 1, 1, 2), churn.churnByPath().get("new.txt"));
     assertEquals(2, churn.churnByPath().size());
   }
 

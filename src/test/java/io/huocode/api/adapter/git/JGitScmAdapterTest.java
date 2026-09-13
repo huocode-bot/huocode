@@ -67,8 +67,8 @@ class JGitScmAdapterTest {
 
     RepoChurn churn = fileAdapter.logNumstat(cloneDir);
     assertEquals(2, churn.window().commitsAnalyzed());
-    assertEquals(new Churn(2, 1), churn.churnByPath().get("src/A.java"));
-    assertEquals(new Churn(1, 1), churn.churnByPath().get("README.md"));
+    assertEquals(new Churn(2, 1, 2, 1), churn.churnByPath().get("src/A.java"));
+    assertEquals(new Churn(1, 1, 1, 0), churn.churnByPath().get("README.md"));
 
     assertEquals(40, fileAdapter.latestCommitSha(cloneDir).length());
   }
