@@ -50,8 +50,11 @@ class ApiDirectRetrieverTest {
     assertEquals(List.of("A.java", "src/B.java"), data.files());
     assertEquals("content:A.java", data.contents().get("A.java"));
     assertEquals("content:src/B.java", data.contents().get("src/B.java"));
-    assertEquals(new Churn("A.java".length(), 2), data.churnByPath().get("A.java"));
-    assertEquals(new Churn("src/B.java".length(), 2), data.churnByPath().get("src/B.java"));
+    assertEquals(
+        new Churn("A.java".length(), 2, "A.java".length(), 0), data.churnByPath().get("A.java"));
+    assertEquals(
+        new Churn("src/B.java".length(), 2, "src/B.java".length(), 0),
+        data.churnByPath().get("src/B.java"));
     assertEquals(500, port.churnCalls.get("A.java"));
     assertEquals(500, port.churnCalls.get("src/B.java"));
     assertEquals(WINDOW, data.window());
@@ -94,7 +97,7 @@ class ApiDirectRetrieverTest {
     @Override
     public Churn churnForPath(RepoUrl repoUrl, String path, int maxCommits) {
       churnCalls.put(path, maxCommits);
-      return new Churn(path.length(), 2);
+      return new Churn(path.length(), 2, path.length(), 0);
     }
 
     @Override

@@ -15,6 +15,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import org.springframework.stereotype.Component;
 
@@ -89,6 +90,8 @@ public class HttpGitHubApiAdapter implements GitHubApiPort {
   public Churn churnForPath(RepoUrl repoUrl, String path, int maxCommits) {
     int commits = 0;
     Set<String> authors = new HashSet<>();
+    int linesAdded = 0;
+    int linesDeleted = 0;
     for (JsonNode item : fetchCommits(http, repoUrl, path, maxCommits)) {
       if (isBotAuthor(item)) {
         continue;
@@ -98,8 +101,18 @@ public class HttpGitHubApiAdapter implements GitHubApiPort {
       if (!author.isEmpty()) {
         authors.add(author);
       }
+      // Commit detail (lines per file) may be unavailable (rate limit/404): the commit
+      // then counts as touching 0 content lines — commit/author counts stay exact.
+      Optional<CommitReader.FileLines> detail =
+          CommitReader.fileLines(http, repoUrl, item.path("sha").asText(), path);
+      if (detail.isPresent()) {
+        linesAdded += detail.get().added();
+        linesDeleted += detail.get().deleted();
+      }
     }
-    return new Churn(commits, authors.size());
+    return commits == 0 && authors.isEmpty()
+        ? Churn.ZERO
+        : new Churn(commits, authors.size(), linesAdded, linesDeleted);
   }
 
   @Override

@@ -19,6 +19,7 @@ import io.huocode.api.model.QuadrantKind;
 import io.huocode.api.model.RepoScore;
 import io.huocode.api.model.RepoUrl;
 import io.huocode.api.model.RetrievalStrategy;
+import io.huocode.api.scoring.ScoreEngine;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -48,6 +49,7 @@ public final class AnalysisResultMapper {
             .limitations(toLimitations(score.limitations()))
             .analysisWindow(toAnalysisWindow(window))
             .relativeScoringEnabled(score.relativeScoringEnabled())
+            .scoreVersion(ScoreEngine.SCORE_VERSION)
             .top5(score.top5().stream().map(FileScore::path).toList())
             .files(toFileResults(measurements, score, properties));
     if (score.relativeScoringEnabled()) {
@@ -101,10 +103,14 @@ public final class AnalysisResultMapper {
         case ANALYZED:
           result
               .complexity(BigDecimal.valueOf(measurement.complexity()))
+              .isTest(measurement.isTest())
               .churn(
                   new FileResultChurn()
                       .commits(measurement.churn().commits())
-                      .authors(measurement.churn().authors()))
+                      .authors(measurement.churn().authors())
+                      .linesAdded(measurement.churn().linesAdded())
+                      .linesDeleted(measurement.churn().linesDeleted())
+                      .effectiveLines(measurement.churn().effectiveLines()))
               .exceedsCommonComplexityThreshold(
                   measurement.complexity() > properties.getExceedsCommonComplexityThreshold());
           if (score.relativeScoringEnabled()) {

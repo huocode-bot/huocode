@@ -1,9 +1,12 @@
 package io.huocode.api.adapter.git;
 
+import static io.huocode.api.utils.ChurnParser.CommitChurn;
+import static io.huocode.api.utils.ChurnParser.PathChange;
+
 import io.huocode.api.exception.GitCommandFailedException;
-import io.huocode.api.utils.ChurnParser.CommitChurn;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -47,7 +50,7 @@ public class JGitChurnReader {
             new CommitChurn(
                 commit.getAuthorIdent().getName(),
                 commit.getAuthorIdent().getWhen().toInstant(),
-                changedPaths(repo, walk, commit)));
+                pathChanges(repo, walk, commit)));
       }
       return commits;
     } catch (IOException e) {
@@ -55,30 +58,62 @@ public class JGitChurnReader {
     }
   }
 
-  private static List<String> changedPaths(Repository repo, RevWalk walk, RevCommit commit)
+  private static List<PathChange> pathChanges(Repository repo, RevWalk walk, RevCommit commit)
       throws IOException {
-    List<String> paths = new ArrayList<>();
+    List<PathChange> changes = new ArrayList<>();
     ObjectId parentTree = parentTreeOf(walk, commit);
-    try (ObjectReader reader = repo.newObjectReader();
-        DiffFormatter formatter = new DiffFormatter(new ByteArrayOutputStream())) {
-      formatter.setRepository(repo);
-      formatter.setContext(0);
+    try (ObjectReader reader = repo.newObjectReader()) {
       CanonicalTreeParser newTree = new CanonicalTreeParser();
       newTree.reset(reader, commit.getTree());
       List<DiffEntry> entries;
-      if (parentTree == null) {
-        entries = formatter.scan(new EmptyTreeIterator(), newTree);
-      } else {
-        CanonicalTreeParser oldTree = new CanonicalTreeParser();
-        oldTree.reset(reader, parentTree);
-        entries = formatter.scan(oldTree, newTree);
+      try (DiffFormatter formatter = new DiffFormatter(new ByteArrayOutputStream())) {
+        formatter.setRepository(repo);
+        formatter.setContext(0);
+        if (parentTree == null) {
+          entries = formatter.scan(new EmptyTreeIterator(), newTree);
+        } else {
+          CanonicalTreeParser oldTree = new CanonicalTreeParser();
+          oldTree.reset(reader, parentTree);
+          entries = formatter.scan(oldTree, newTree);
+        }
       }
       for (DiffEntry entry : entries) {
-        String path = entry.getNewPath();
-        paths.add(DiffEntry.DEV_NULL.equals(path) ? entry.getOldPath() : path);
+        changes.add(pathChange(repo, entry));
       }
     }
-    return paths;
+    return changes;
+  }
+
+  private static PathChange pathChange(Repository repo, DiffEntry entry) throws IOException {
+    int added = 0;
+    int deleted = 0;
+    try (ByteArrayOutputStream out = new ByteArrayOutputStream();
+        DiffFormatter formatter = new DiffFormatter(out)) {
+      formatter.setRepository(repo);
+      formatter.setContext(0);
+      formatter.format(entry);
+      for (String line : out.toString(StandardCharsets.UTF_8).split("\\R")) {
+        if (line.startsWith("+++") || line.startsWith("---")) {
+          continue;
+        }
+        if (line.startsWith("+")) {
+          if (isMeaningful(line.substring(1))) {
+            added++;
+          }
+        } else if (line.startsWith("-")) {
+          if (isMeaningful(line.substring(1))) {
+            deleted++;
+          }
+        }
+      }
+    }
+    String path = entry.getNewPath();
+    return new PathChange(
+        DiffEntry.DEV_NULL.equals(path) ? entry.getOldPath() : path, added, deleted);
+  }
+
+  private static boolean isMeaningful(String content) {
+    return !content.trim().isEmpty();
   }
 
   private static ObjectId parentTreeOf(RevWalk walk, RevCommit commit) {

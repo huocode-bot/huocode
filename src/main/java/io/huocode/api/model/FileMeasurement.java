@@ -6,4 +6,6 @@ public record FileMeasurement(
     String unsupportedLanguage,
     FileErrorKind errorCode,
     int complexity,
-    Churn churn) {}
+    Churn churn,
+    boolean isTest,
+    int linesOfCode) {}

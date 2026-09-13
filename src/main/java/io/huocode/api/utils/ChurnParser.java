@@ -28,9 +28,13 @@ public final class ChurnParser {
     return BOT_PATTERN.matcher(author).matches();
   }
 
+  public record PathChange(String path, int added, int deleted) {}
+
   public static RepoChurn aggregate(List<CommitChurn> commits) {
     Map<String, Integer> commitsByPath = new HashMap<>();
     Map<String, Set<String>> authorsByPath = new HashMap<>();
+    Map<String, Integer> addedByPath = new HashMap<>();
+    Map<String, Integer> deletedByPath = new HashMap<>();
     List<Instant> dates = new ArrayList<>();
     Set<String> distinctAuthors = new HashSet<>();
     int commitsAnalyzed = 0;
@@ -44,17 +48,21 @@ public final class ChurnParser {
       if (commit.date() != null) {
         dates.add(commit.date());
       }
-      for (String path : commit.paths()) {
-        commitsByPath.merge(path, 1, Integer::sum);
-        authorsByPath.computeIfAbsent(path, ignored -> new HashSet<>()).add(commit.author());
+      for (PathChange change : commit.changes()) {
+        commitsByPath.merge(change.path(), 1, Integer::sum);
+        authorsByPath
+            .computeIfAbsent(change.path(), ignored -> new HashSet<>())
+            .add(commit.author());
+        addedByPath.merge(change.path(), change.added(), Integer::sum);
+        deletedByPath.merge(change.path(), change.deleted(), Integer::sum);
       }
     }
     return new RepoChurn(
-        aggregateChurn(commitsByPath, authorsByPath),
+        aggregateChurn(commitsByPath, authorsByPath, addedByPath, deletedByPath),
         window(commitsAnalyzed, dates, distinctAuthors));
   }
 
-  public record CommitChurn(String author, Instant date, List<String> paths) {}
+  public record CommitChurn(String author, Instant date, List<PathChange> changes) {}
 
   public static RepoChurn parse(String logOutput) {
     List<CommitChurn> commits = new ArrayList<>();
@@ -77,21 +85,50 @@ public final class ChurnParser {
     if (isBot(author)) {
       return Optional.empty();
     }
-    List<String> paths = new ArrayList<>();
+    List<PathChange> changes = new ArrayList<>();
     for (int i = 1; i < lines.length; i++) {
-      String path = pathOf(lines[i]);
-      if (path != null) {
-        paths.add(path);
-      }
+      changeOf(lines[i]).ifPresent(changes::add);
     }
-    return Optional.of(new CommitChurn(author, parseDate(header[1]).orElse(null), paths));
+    return Optional.of(new CommitChurn(author, parseDate(header[1]).orElse(null), changes));
+  }
+
+  private static Optional<PathChange> changeOf(String numstatLine) {
+    if (numstatLine.isEmpty()) {
+      return Optional.empty();
+    }
+    String[] parts = numstatLine.split("\t", -1);
+    if (parts.length < 3) {
+      return Optional.empty();
+    }
+    return Optional.of(new PathChange(pathOf(parts), nonNegative(parts[0]), nonNegative(parts[1])));
+  }
+
+  private static int nonNegative(String value) {
+    if ("-".equals(value)) {
+      return 0;
+    }
+    try {
+      return Math.max(0, Integer.parseInt(value));
+    } catch (NumberFormatException e) {
+      return 0;
+    }
   }
 
   private static Map<String, Churn> aggregateChurn(
-      Map<String, Integer> commitsByPath, Map<String, Set<String>> authorsByPath) {
+      Map<String, Integer> commitsByPath,
+      Map<String, Set<String>> authorsByPath,
+      Map<String, Integer> addedByPath,
+      Map<String, Integer> deletedByPath) {
     Map<String, Churn> result = new HashMap<>();
     commitsByPath.forEach(
-        (path, commits) -> result.put(path, new Churn(commits, authorsByPath.get(path).size())));
+        (path, commits) ->
+            result.put(
+                path,
+                new Churn(
+                    commits,
+                    authorsByPath.get(path).size(),
+                    addedByPath.getOrDefault(path, 0),
+                    deletedByPath.getOrDefault(path, 0))));
     return result;
   }
 
@@ -113,14 +150,7 @@ public final class ChurnParser {
     }
   }
 
-  private static String pathOf(String numstatLine) {
-    if (numstatLine.isEmpty()) {
-      return null;
-    }
-    String[] parts = numstatLine.split("\t", -1);
-    if (parts.length < 3) {
-      return null;
-    }
+  private static String pathOf(String[] parts) {
     String path = String.join("\t", copyOfRange(parts, 2, parts.length));
     int arrow = path.indexOf(" => ");
     if (arrow >= 0) {

@@ -30,6 +30,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Stream;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -125,10 +126,11 @@ public class RepoAggregator {
     for (String file : files) {
       Path path = Path.of(file);
       Churn churn = churnByPath.getOrDefault(file, Churn.ZERO);
+      boolean isTest = isTestPath(file);
       if (parseErrors.contains(file)) {
         measurements.add(
             new FileMeasurement(
-                file, FileStatusKind.ERROR, null, FileErrorKind.PARSE_ERROR, 0, churn));
+                file, FileStatusKind.ERROR, null, FileErrorKind.PARSE_ERROR, 0, churn, isTest, 0));
       } else if (!LanguageDetector.isJava(path)) {
         measurements.add(
             new FileMeasurement(
@@ -137,11 +139,20 @@ public class RepoAggregator {
                 LanguageDetector.languageOf(path),
                 null,
                 0,
-                churn));
+                churn,
+                false,
+                0));
       } else if (Files.size(repoDirectory.resolve(file)) > properties.getMaxFileSizeBytes()) {
         measurements.add(
             new FileMeasurement(
-                file, FileStatusKind.ERROR, null, FileErrorKind.FILE_TOO_LARGE, 0, churn));
+                file,
+                FileStatusKind.ERROR,
+                null,
+                FileErrorKind.FILE_TOO_LARGE,
+                0,
+                churn,
+                isTest,
+                0));
       } else {
         measurements.add(
             new FileMeasurement(
@@ -150,9 +161,26 @@ public class RepoAggregator {
                 null,
                 null,
                 complexity.complexityByPath().getOrDefault(file, 0),
-                churn));
+                churn,
+                isTest,
+                linesOfCode(repoDirectory.resolve(file))));
       }
     }
     return measurements;
+  }
+
+  private static boolean isTestPath(String file) {
+    String normalized = file.replace('\\', '/');
+    return normalized.contains("/test/")
+        || normalized.endsWith("Test.java")
+        || normalized.endsWith("IT.java");
+  }
+
+  private static int linesOfCode(Path file) {
+    try (Stream<String> lines = Files.lines(file)) {
+      return (int) lines.filter(line -> !line.trim().isEmpty()).count();
+    } catch (IOException e) {
+      return 0;
+    }
   }
 }

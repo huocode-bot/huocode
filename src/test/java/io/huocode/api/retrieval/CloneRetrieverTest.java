@@ -53,8 +53,8 @@ class CloneRetrieverTest {
 
     assertEquals(40, data.sha().length());
     assertEquals(List.of("A.java", "B.java"), data.files());
-    assertEquals(new Churn(2, 1), data.churn().churnByPath().get("A.java"));
-    assertEquals(new Churn(1, 1), data.churn().churnByPath().get("B.java"));
+    assertEquals(new Churn(2, 1, 2, 1), data.churn().churnByPath().get("A.java"));
+    assertEquals(new Churn(1, 1, 1, 0), data.churn().churnByPath().get("B.java"));
     assertEquals(2, data.churn().window().commitsAnalyzed());
   }
 }
