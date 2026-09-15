@@ -223,7 +223,9 @@ public class ScoreEngine {
       double deviation = valueOf.applyAsDouble(measurement) - mean;
       squaredDeviationSum += deviation * deviation;
     }
-    return new Distribution(mean, Math.sqrt(squaredDeviationSum / analyzed.size()), max);
+    int n = analyzed.size();
+    double stdDev = n <= 1 ? 0.0 : Math.sqrt(squaredDeviationSum / (n - 1));
+    return new Distribution(mean, stdDev, max);
   }
 
   private static Map<String, Integer> percentiles(
