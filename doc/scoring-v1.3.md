@@ -104,18 +104,22 @@ carry proportionally more weight.
 
 ## Configuration
 
-| Property | Default | Description |
-|----------|---------|-------------|
-| huocode.commit-window | 500 | Commits analyzed for churn |
-| huocode.min-files-for-relative-scoring | 15 | Minimum files for percentile scoring |
-| huocode.exceeds-common-complexity-threshold | 10 | McCabe > 10 rule |
+All values are configurable via environment variables (overridable from the Poja console without a rebuild).
+
+| Env Var | Default | Description |
+|---------|---------|-------------|
+| `huocode.commit-window` | 500 | Commits analyzed for churn (also sets clone depth) |
+| `huocode.min-files-for-relative-scoring` | 15 | Below this many analyzable files, relative scoring is disabled |
+| `huocode.exceeds-common-complexity-threshold` | 10 | McCabe > 10 rule of thumb for the complexity flag |
+| `huocode.max-file-size-bytes` | 1048576 (1 MiB) | Files above this size are marked FILE_TOO_LARGE |
+| `huocode.hard-file-limit` | 3000 | Maximum analyzable files per repository |
 
 ## Limitations
 
 - Only Java files are analyzed for complexity
-- Relative scoring is disabled below 15 analyzable files
-- Maximum 3000 files per repository
-- Files larger than 1 MiB are excluded
+- Relative scoring is disabled below 15 analyzable files (`huocode.min-files-for-relative-scoring`)
+- Maximum 3000 files per repository (`huocode.hard-file-limit`)
+- Files larger than 1 MiB are excluded (`huocode.max-file-size-bytes`)
 
 ## References
 
