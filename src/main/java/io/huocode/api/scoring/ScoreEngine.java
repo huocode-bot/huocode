@@ -134,7 +134,7 @@ public class ScoreEngine {
       for (FileScore score : scoresByPath.values()) {
         quadrantCounts.merge(score.quadrant(), 1, Integer::sum);
       }
-      repoHealthScore = averageHealth(scoresByPath.values(), testPaths);
+      repoHealthScore = averageHealth(analyzed, scoresByPath, testPaths);
       top5 = topScores(scoresByPath.values());
     }
 
@@ -186,17 +186,25 @@ public class ScoreEngine {
     return QuadrantKind.HEALTHY;
   }
 
-  private static int averageHealth(Iterable<FileScore> scores, Set<String> excludedPaths) {
-    int sum = 0;
-    int count = 0;
-    for (FileScore score : scores) {
-      if (excludedPaths.contains(score.path())) {
+  private static int averageHealth(
+      List<FileMeasurement> measurements,
+      Map<String, FileScore> scoresByPath,
+      Set<String> excludedPaths) {
+    double weightedSum = 0;
+    int totalLoc = 0;
+    for (FileMeasurement m : measurements) {
+      if (excludedPaths.contains(m.path())) {
         continue;
       }
-      sum += score.codeHealthScore();
-      count++;
+      FileScore score = scoresByPath.get(m.path());
+      if (score == null) {
+        continue;
+      }
+      int loc = Math.max(1, m.linesOfCode());
+      weightedSum += (double) score.codeHealthScore() * loc;
+      totalLoc += loc;
     }
-    return count == 0 ? 0 : Math.round((float) sum / count);
+    return totalLoc == 0 ? 0 : (int) Math.round(weightedSum / totalLoc);
   }
 
   private static List<FileScore> topScores(Iterable<FileScore> scores) {
