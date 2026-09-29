@@ -24,12 +24,22 @@ contract version in [`doc/api.yml`](doc/api.yml) (currently 1.3.0).
 - Lambda-oriented defaults: hard file limit lowered from 20000 to 3000, job TTL lowered from 48
   hours to 1 hour.
 - Active-job pointer cleanup now tolerates a missing `s3:DeleteObject` permission.
+- Scoring fiche v1.3: `codeHealthScore` is now `round(max(20, 100 - 55*cn - 45*an))`, replacing the
+  product of percentiles. Complexity is the worst method's cyclomatic complexity instead of the file
+  total, and activity uses a double guard (churn above `mean + 2 sigma`, or at least 50 effective
+  lines with a churn ratio above `mean + 2 sigma`).
+- `repoHealthScore` is now a lines-of-code-weighted average of `codeHealthScore` across non-test
+  files, so a small healthy file can no longer offset a large unhealthy one.
+- `scoreVersion` in the API contract now advertises `1.3`, matching the implemented fiche.
 
 ### Fixed
 
 - JGit `setDepth(0)` failure on full clones (depth is now applied only when requested).
 - Ambiguous-object errors surfaced through the repository HEAD lookup.
 - S3 job store no longer treats terminal or missing jobs as active.
+- Activity thresholds now use the sample standard deviation (Bessel correction, `N-1`) instead of
+  the population standard deviation.
+- README and API contract no longer describe the superseded product-of-percentiles formula.
 
 ### Security
 

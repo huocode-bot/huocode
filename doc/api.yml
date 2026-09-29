@@ -542,18 +542,19 @@ components:
         scoreVersion:
           type: string
           description: >
-            Version of the scoring fiche used to compute this result ("1.2"). Consumers should
+            Version of the scoring fiche used to compute this result ("1.3"). Consumers should
             adapt their presentation based on this value instead of assuming a static formula.
-          example: "1.2"
+          example: "1.3"
         repoHealthScore:
           type: integer
           minimum: 0
           maximum: 100
           description: >
-            Aggregate Code Health Score, the unweighted average of codeHealthScore across all
-            analyzed NON-test files (spec section 3.10). Test files are excluded — their churn
-            inflates scoring and would unfairly drag the health signal down. Omitted when
-            relativeScoringEnabled = false.
+            Aggregate Code Health Score, the lines-of-code-weighted average of codeHealthScore
+            across all analyzed NON-test files (spec section 3.10). Test files are excluded —
+            their churn inflates scoring and would unfairly drag the health signal down. Larger
+            files carry proportionally more weight, so a small healthy file cannot offset a large
+            unhealthy one. Omitted when relativeScoringEnabled = false.
           example: 78
         summary:
           $ref: '#/components/schemas/QuadrantSummary'
