@@ -47,20 +47,28 @@ They are never silently ignored, never blended into the scores. The language roa
 ## How scoring works
 
 - Per-file `codeHealthScore` runs **0 to 100, where 100 = the healthiest file in the repository**
-  (low complexity *and* rarely modified). Scores near 0 are **hotspots**: complex and frequently
-  changed, i.e. the files worth reviewing first. `repoHealthScore` is the unweighted average across
-  all analyzed files.
-- The combined risk is the **product** of the complexity and churn percentiles —
-  `100 − (complexityPercentile × churnPercentile) / 100` — not a sum or an average: a file must be
+  (low complexity *and* rarely modified). The lowest scores are **hotspots**: complex and frequently
+  changed, i.e. the files worth reviewing first. The score is `round(max(20, 100 − 55·cn − 45·an))`,
+  where `cn` is the complexity penalty and `an` the activity penalty — additive, so a file must be
   *both* complex and frequently modified to see its score drop sharply, which is what makes a true
-  hotspot stand out. A complex-but-stable file is shown with a healthy score and stays visible through
-  the `complex_stable` quadrant instead.
+  hotspot stand out. A complex-but-stable file keeps a high score and stays visible through the
+  `complex_stable` quadrant instead.
+- Complexity is the **worst method's** cyclomatic complexity in the file, not the file total
+  (scoring fiche v1.3), compared against the McCabe threshold of 10. Activity uses a **double
+  guard**: a file is active when its effective churn is above `mean + 2σ`, or when it has at least
+  50 effective lines *and* its churn ratio `effectiveLines / linesOfCode` is above `mean + 2σ`.
+- `repoHealthScore` is the **lines-of-code-weighted** average of `codeHealthScore` across all
+  analyzed non-test files, so a small healthy file cannot offset a large unhealthy one. Test files
+  are excluded — their churn would unfairly drag the health signal down.
 - Scoring is **relative within the analyzed repository** (percentile normalization), never a
   universal absolute scale. Below 15 analyzable files, relative scoring is disabled entirely and
   only the raw complexity signal is reported. Fields are omitted, never fabricated.
-- The complexity signal is also carried separately: `complexityPercentile` (100 = the most complex
-  file in the repository) and `exceedsCommonComplexityThreshold` (raw complexity > 10, the widely
-  cited McCabe rule of thumb).
+- `complexityPercentile` and `churnPercentile` (100 = the most complex / most churned file in the
+  repository) are carried separately for display, along with
+  `exceedsCommonComplexityThreshold` (raw complexity > 10, the widely cited McCabe rule of thumb).
+  They are not inputs to the score formula.
+- The full model is specified in [`doc/scoring-v1.3.md`](doc/scoring-v1.3.md). Responses carry
+  `scoreVersion` so clients can adapt their presentation.
 - Honest by design: this tool never states "this file is bad" as fact. It surfaces *comparative*
   signals for human review. See the disclaimer below.
 

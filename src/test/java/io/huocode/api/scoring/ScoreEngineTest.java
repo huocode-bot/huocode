@@ -137,6 +137,58 @@ class ScoreEngineTest {
     assertEquals(97, score.repoHealthScore());
   }
 
+  @Test
+  void repo_health_score_weights_files_by_lines_of_code() {
+    List<FileMeasurement> measurements = new ArrayList<>();
+    for (int i = 1; i <= 13; i++) {
+      measurements.add(analyzed("tiny_" + i + ".java", 1, 0, 5, false));
+    }
+    measurements.add(analyzed("smallHealthy.java", 1, 0, 5, false));
+    measurements.add(analyzed("largeUnhealthy.java", 50, 0, 1000, false));
+
+    RepoScore score = engine.score(measurements);
+
+    assertEquals(100, scoreOf(score, "smallHealthy.java"));
+    assertEquals(67, scoreOf(score, "largeUnhealthy.java"));
+    assertEquals(69, score.repoHealthScore());
+  }
+
+  @Test
+  void repo_health_score_ignores_test_files_when_weighting() {
+    List<FileMeasurement> measurements = new ArrayList<>();
+    for (int i = 1; i <= 13; i++) {
+      measurements.add(analyzed("tiny_" + i + ".java", 1, 0, 5, false));
+    }
+    measurements.add(analyzed("largeUnhealthy.java", 50, 0, 1000, false));
+    measurements.add(analyzed("hugeTest.java", 50, 0, 100000, true));
+
+    RepoScore score = engine.score(measurements);
+
+    assertEquals(67, scoreOf(score, "hugeTest.java"));
+    assertEquals(69, score.repoHealthScore());
+  }
+
+  @Test
+  void activity_threshold_uses_the_sample_standard_deviation() {
+    int[] churn = {4, 29, 37, 56, 81, 88, 109, 119, 128, 134, 136, 158, 170, 185, 235};
+    List<FileMeasurement> measurements = new ArrayList<>();
+    for (int i = 0; i < churn.length; i++) {
+      measurements.add(analyzed("f" + i + ".java", 1, churn[i], 100, false));
+    }
+
+    RepoScore score = engine.score(measurements);
+
+    for (int i = 0; i < churn.length; i++) {
+      String path = "f" + i + ".java";
+      assertEquals(100, scoreOf(score, path), () -> "score of " + path);
+      assertEquals(
+          QuadrantKind.HEALTHY,
+          score.scoresByPath().get(path).quadrant(),
+          () -> "quadrant of " + path);
+    }
+    assertEquals(100, score.repoHealthScore());
+  }
+
   private static void assertScore(
       RepoScore score,
       String path,
