@@ -39,8 +39,5 @@ out/
 .aws-sam
 **.toml
 
-### HuoCode local secrets ###
-secret.txt
-
 ### Mac OS ###
 .DS_Store
