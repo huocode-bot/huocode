@@ -83,4 +83,20 @@ class ChurnParserTest {
     assertEquals(new Churn(3, 2, 12, 3), churn.churnByPath().get("b/F.java"));
     assertFalse(churn.churnByPath().containsKey("a/F.java"));
   }
+
+  @Test
+  void countPatchLines_skips_headers_and_blank_lines_but_keeps_dash_prefixed_content() {
+    String patch =
+        "diff --git a/A.java b/A.java\n"
+            + "--- a/A.java\n"
+            + "+++ b/A.java\n"
+            + "@@ -1,3 +1,3 @@\n"
+            + "---i;\n"
+            + "+++i;\n"
+            + "+\n"
+            + "-   \n"
+            + "\\ No newline at end of file\n";
+
+    assertEquals(new ChurnParser.LineCounts(1, 1), ChurnParser.countPatchLines(patch));
+  }
 }

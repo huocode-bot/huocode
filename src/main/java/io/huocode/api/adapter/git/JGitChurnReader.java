@@ -1,7 +1,9 @@
 package io.huocode.api.adapter.git;
 
 import static io.huocode.api.utils.ChurnParser.CommitChurn;
+import static io.huocode.api.utils.ChurnParser.LineCounts;
 import static io.huocode.api.utils.ChurnParser.PathChange;
+import static io.huocode.api.utils.ChurnParser.countPatchLines;
 
 import io.huocode.api.exception.GitCommandFailedException;
 import java.io.ByteArrayOutputStream;
@@ -92,38 +94,22 @@ public class JGitChurnReader {
   }
 
   private static PathChange pathChange(Repository repo, DiffEntry entry) throws IOException {
-    int added = 0;
-    int deleted = 0;
+    LineCounts lines;
     try (ByteArrayOutputStream out = new ByteArrayOutputStream();
         DiffFormatter formatter = new DiffFormatter(out)) {
       formatter.setRepository(repo);
       formatter.setContext(0);
       formatter.format(entry);
-      for (String line : out.toString(StandardCharsets.UTF_8).split("\\R")) {
-        if (line.startsWith("+++") || line.startsWith("---")) {
-          continue;
-        }
-        if (line.startsWith("+")) {
-          if (isMeaningful(line.substring(1))) {
-            added++;
-          }
-        } else if (line.startsWith("-")) {
-          if (isMeaningful(line.substring(1))) {
-            deleted++;
-          }
-        }
-      }
+      lines = countPatchLines(out.toString(StandardCharsets.UTF_8));
     }
     String path = entry.getNewPath();
     if (entry.getChangeType() == DiffEntry.ChangeType.RENAME) {
-      return new PathChange(path, entry.getOldPath(), added, deleted);
+      return new PathChange(path, entry.getOldPath(), lines.added(), lines.deleted());
     }
     return new PathChange(
-        DiffEntry.DEV_NULL.equals(path) ? entry.getOldPath() : path, added, deleted);
-  }
-
-  private static boolean isMeaningful(String content) {
-    return !content.trim().isEmpty();
+        DiffEntry.DEV_NULL.equals(path) ? entry.getOldPath() : path,
+        lines.added(),
+        lines.deleted());
   }
 
   private static boolean hasUnavailableParent(RevWalk walk, RevCommit commit) throws IOException {

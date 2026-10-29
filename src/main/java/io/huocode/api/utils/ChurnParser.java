@@ -36,6 +36,32 @@ public final class ChurnParser {
     }
   }
 
+  public record LineCounts(int added, int deleted) {}
+
+  /**
+   * Counts the non-blank added and deleted lines of a unified diff. Lines before the first hunk
+   * header are file headers (---/+++), so a changed line such as "--i;" is still counted.
+   */
+  public static LineCounts countPatchLines(String patch) {
+    int added = 0;
+    int deleted = 0;
+    boolean inHunk = false;
+    for (String line : patch.split("\\R")) {
+      if (line.startsWith("@@")) {
+        inHunk = true;
+      } else if (inHunk && line.startsWith("+") && isMeaningful(line.substring(1))) {
+        added++;
+      } else if (inHunk && line.startsWith("-") && isMeaningful(line.substring(1))) {
+        deleted++;
+      }
+    }
+    return new LineCounts(added, deleted);
+  }
+
+  private static boolean isMeaningful(String content) {
+    return !content.trim().isEmpty();
+  }
+
   /**
    * Aggregates churn per path. Commits must be ordered newest first: a rename then attributes the
    * older history of the previous path to the path the file has today.
