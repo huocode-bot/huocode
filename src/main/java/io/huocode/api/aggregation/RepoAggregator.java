@@ -40,6 +40,11 @@ public class RepoAggregator {
 
   private static final String CLONE_DIRECTORY = "clone";
   private static final String WORK_DIRECTORY = "repo";
+  private static final List<String> TEST_DIRECTORIES =
+      List.of("test", "tests", "testFixtures", "integrationTest");
+  // Default Surefire/Failsafe includes, plus the Spring *Tests convention.
+  private static final List<String> TEST_SUFFIXES =
+      List.of("Test.java", "Tests.java", "TestCase.java", "IT.java", "ITCase.java");
 
   private final RetrievalStrategySelector strategySelector;
   private final CloneRetriever cloneRetriever;
@@ -169,11 +174,17 @@ public class RepoAggregator {
     return measurements;
   }
 
-  private static boolean isTestPath(String file) {
-    String normalized = file.replace('\\', '/');
-    return normalized.contains("/test/")
-        || normalized.endsWith("Test.java")
-        || normalized.endsWith("IT.java");
+  static boolean isTestPath(String file) {
+    String normalized = "/" + file.replace('\\', '/');
+    // Maven/Gradle production sources stay production, whatever their package or name
+    // (e.g. spring-test ships org/springframework/test under src/main).
+    if (normalized.contains("/src/main/")) {
+      return false;
+    }
+    String directory = normalized.substring(0, normalized.lastIndexOf('/') + 1);
+    String name = normalized.substring(directory.length());
+    return TEST_DIRECTORIES.stream().anyMatch(segment -> directory.contains("/" + segment + "/"))
+        || TEST_SUFFIXES.stream().anyMatch(name::endsWith);
   }
 
   static int linesOfCode(Path file) {

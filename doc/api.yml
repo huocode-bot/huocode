@@ -648,7 +648,9 @@ components:
         isTest:
           type: boolean
           description: >
-            True when the path is under a "/test/" segment or ends with Test.java / IT.java.
+            True when the path is outside src/main and either sits under a test, tests,
+            testFixtures or integrationTest directory, or ends with Test.java, Tests.java,
+            TestCase.java, IT.java or ITCase.java.
             Test files are excluded from the repo health score and displayed with a distinct
             test badge. Present only if status = analyzed.
           example: false

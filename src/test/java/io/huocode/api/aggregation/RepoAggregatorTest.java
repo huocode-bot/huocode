@@ -1,6 +1,7 @@
 package io.huocode.api.aggregation;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -244,6 +245,25 @@ class RepoAggregatorTest {
             .getBytes(java.nio.charset.StandardCharsets.ISO_8859_1));
 
     assertEquals(3, RepoAggregator.linesOfCode(latin1));
+  }
+
+  @Test
+  void isTestPath_recognizes_common_java_test_layouts() {
+    assertTrue(RepoAggregator.isTestPath("src/test/java/a/Fixtures.java"));
+    assertTrue(RepoAggregator.isTestPath("test/Fixtures.java"));
+    assertTrue(RepoAggregator.isTestPath("module/tests/Helper.java"));
+    assertTrue(RepoAggregator.isTestPath("src/testFixtures/java/a/Builder.java"));
+    assertTrue(RepoAggregator.isTestPath("src/integrationTest/java/a/Flow.java"));
+    assertTrue(RepoAggregator.isTestPath("lib/FooTests.java"));
+    assertTrue(RepoAggregator.isTestPath("lib/FooTestCase.java"));
+    assertTrue(RepoAggregator.isTestPath("lib/FooIT.java"));
+    assertTrue(RepoAggregator.isTestPath("lib/FooITCase.java"));
+
+    assertFalse(RepoAggregator.isTestPath("src/main/java/org/springframework/test/Mock.java"));
+    assertFalse(RepoAggregator.isTestPath("src/main/java/a/LoadTest.java"));
+    assertFalse(RepoAggregator.isTestPath("src/main/java/a/Contest.java"));
+    assertFalse(RepoAggregator.isTestPath("lib/Latest.java"));
+    assertFalse(RepoAggregator.isTestPath("lib/testing/Tool.java"));
   }
 
   private static final class StubGitHubApiPort implements GitHubApiPort {

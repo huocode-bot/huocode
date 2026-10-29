@@ -89,8 +89,10 @@ Percentiles use a CDF (Cumulative Distribution Function):
 repoHealthScore = round(SUM(codeHealthScore_i * LOC_i) / SUM(LOC_i))
 ```
 
-Test files (paths containing `/test/`, `*Test.java`, `*IT.java`) are
-excluded from the average. The LoC-weighted average ensures larger files
+Test files are excluded from the average. A file is a test when it is
+outside `src/main` and either sits under a `test`, `tests`, `testFixtures`
+or `integrationTest` directory, or ends with `Test.java`, `Tests.java`,
+`TestCase.java`, `IT.java` or `ITCase.java`. The LoC-weighted average ensures larger files
 carry proportionally more weight.
 
 ## Quadrant Classification

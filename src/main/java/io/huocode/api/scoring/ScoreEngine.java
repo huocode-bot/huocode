@@ -34,7 +34,7 @@ import org.springframework.stereotype.Component;
  * </ul>
  *
  * <p>Score: round(max(20, 100 - 55*cn - 45*an)) where cn clamps at 0.6 and an at 1.0. Test files
- * (path under /test/ or *Test.java / *IT.java) are excluded from the repository health score.
+ * (see RepoAggregator.isTestPath) are excluded from the repository health score.
  *
  * <p>Since v1.3, complexity is the worst-method cyclomatic complexity of the file (PMD
  * methodReportLevel), which is compared to the industry per-function threshold (McCabe/SEI > 10,
