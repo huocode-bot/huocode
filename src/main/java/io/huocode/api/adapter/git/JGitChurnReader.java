@@ -75,6 +75,7 @@ public class JGitChurnReader {
       try (DiffFormatter formatter = new DiffFormatter(new ByteArrayOutputStream())) {
         formatter.setRepository(repo);
         formatter.setContext(0);
+        formatter.setDetectRenames(true);
         if (parentTree == null) {
           entries = formatter.scan(new EmptyTreeIterator(), newTree);
         } else {
@@ -114,6 +115,9 @@ public class JGitChurnReader {
       }
     }
     String path = entry.getNewPath();
+    if (entry.getChangeType() == DiffEntry.ChangeType.RENAME) {
+      return new PathChange(path, entry.getOldPath(), added, deleted);
+    }
     return new PathChange(
         DiffEntry.DEV_NULL.equals(path) ? entry.getOldPath() : path, added, deleted);
   }

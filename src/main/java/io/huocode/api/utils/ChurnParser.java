@@ -28,8 +28,18 @@ public final class ChurnParser {
     return BOT_PATTERN.matcher(author).matches();
   }
 
-  public record PathChange(String path, int added, int deleted) {}
+  /** previousPath is the path before a rename in this commit, null otherwise. */
+  public record PathChange(String path, String previousPath, int added, int deleted) {
 
+    public PathChange(String path, int added, int deleted) {
+      this(path, null, added, deleted);
+    }
+  }
+
+  /**
+   * Aggregates churn per path. Commits must be ordered newest first: a rename then attributes the
+   * older history of the previous path to the path the file has today.
+   */
   public static RepoChurn aggregate(List<CommitChurn> commits) {
     Map<String, Integer> commitsByPath = new HashMap<>();
     Map<String, Set<String>> authorsByPath = new HashMap<>();
@@ -37,25 +47,33 @@ public final class ChurnParser {
     Map<String, Integer> deletedByPath = new HashMap<>();
     List<Instant> dates = new ArrayList<>();
     Set<String> distinctAuthors = new HashSet<>();
+    Map<String, String> currentPathOf = new HashMap<>();
     int commitsAnalyzed = 0;
 
     for (CommitChurn commit : commits) {
-      if (isBot(commit.author())) {
-        continue;
-      }
-      commitsAnalyzed++;
-      distinctAuthors.add(commit.author());
-      if (commit.date() != null) {
-        dates.add(commit.date());
-      }
+      Map<String, String> renames = new HashMap<>();
       for (PathChange change : commit.changes()) {
-        commitsByPath.merge(change.path(), 1, Integer::sum);
-        authorsByPath
-            .computeIfAbsent(change.path(), ignored -> new HashSet<>())
-            .add(commit.author());
-        addedByPath.merge(change.path(), change.added(), Integer::sum);
-        deletedByPath.merge(change.path(), change.deleted(), Integer::sum);
+        String path = currentPathOf.getOrDefault(change.path(), change.path());
+        if (change.previousPath() != null && !change.previousPath().equals(change.path())) {
+          renames.put(change.previousPath(), path);
+        }
       }
+      if (!isBot(commit.author())) {
+        commitsAnalyzed++;
+        distinctAuthors.add(commit.author());
+        if (commit.date() != null) {
+          dates.add(commit.date());
+        }
+        for (PathChange change : commit.changes()) {
+          String path = currentPathOf.getOrDefault(change.path(), change.path());
+          commitsByPath.merge(path, 1, Integer::sum);
+          authorsByPath.computeIfAbsent(path, ignored -> new HashSet<>()).add(commit.author());
+          addedByPath.merge(path, change.added(), Integer::sum);
+          deletedByPath.merge(path, change.deleted(), Integer::sum);
+        }
+      }
+      // Registered after the commit itself: only older commits see the previous path.
+      currentPathOf.putAll(renames);
     }
     return new RepoChurn(
         aggregateChurn(commitsByPath, authorsByPath, addedByPath, deletedByPath),
