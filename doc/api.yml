@@ -466,7 +466,7 @@ components:
 
     QuadrantSummary:
       type: object
-      description: Per-quadrant file counts, for the at-a-glance repo breakdown (spec section 3.10). Present only if relativeScoringEnabled = true.
+      description: Per-quadrant counts of non-test files, for the at-a-glance repo breakdown (spec section 3.10). Present only if relativeScoringEnabled = true.
       properties:
         hotspot:
           type: integer
@@ -542,9 +542,9 @@ components:
         scoreVersion:
           type: string
           description: >
-            Version of the scoring fiche used to compute this result ("1.3"). Consumers should
+            Version of the scoring fiche used to compute this result ("1.4"). Consumers should
             adapt their presentation based on this value instead of assuming a static formula.
-          example: "1.3"
+          example: "1.4"
         repoHealthScore:
           type: integer
           minimum: 0
@@ -571,7 +571,7 @@ components:
           type: array
           items:
             type: string
-          description: Paths of the 5 files with the lowest codeHealthScore (most at risk). Empty if relativeScoringEnabled = false.
+          description: Paths of the 5 non-test files with the lowest codeHealthScore (most at risk). Empty if relativeScoringEnabled = false.
 
     FileStatus:
       type: string
@@ -634,8 +634,8 @@ components:
               type: integer
               description: >
                 Sum of added content lines across all commits in the analyzed window
-                (line-based churn, scoring fiche v1.3). Blank lines are counted; pure
-                whitespace-only lines are not.
+                (line-based churn, scoring fiche v1.4). Blank and whitespace-only lines are
+                not counted; the history of a renamed file is attributed to its current path.
               example: 124
             linesDeleted:
               type: integer
@@ -643,12 +643,14 @@ components:
               example: 36
             effectiveLines:
               type: integer
-              description: linesAdded + linesDeleted — the volume used by the activity signal (v1.3).
+              description: linesAdded + linesDeleted — the volume used by the activity signal (v1.4).
               example: 160
         isTest:
           type: boolean
           description: >
-            True when the path is under a "/test/" segment or ends with Test.java / IT.java.
+            True when the path is outside src/main and either sits under a test, tests,
+            testFixtures or integrationTest directory, or ends with Test.java, Tests.java,
+            TestCase.java, IT.java or ITCase.java.
             Test files are excluded from the repo health score and displayed with a distinct
             test badge. Present only if status = analyzed.
           example: false
@@ -658,9 +660,9 @@ components:
           maximum: 100
           description: >
             Present only if status = analyzed AND relativeScoringEnabled = true.
-            Share of analyzed files with a value at or below this file's value
-            (CDF, ×100): the file with the highest raw value gets 100 (scoring fiche v1.3).
-            Kept for display (treemap/scatter sizing); not part of the v1.3 score formula.
+            Share of analyzed non-test files with a value at or below this file's value
+            (CDF, ×100): the file with the highest raw value gets 100 (scoring fiche v1.4).
+            Kept for display (treemap/scatter sizing); not part of the v1.4 score formula.
           example: 95
         churnPercentile:
           type: integer
@@ -669,18 +671,19 @@ components:
           description: >
             Present only if status = analyzed AND relativeScoringEnabled = true.
             Percentile of effectiveLines (line-based churn). Kept for display; not part of
-            the v1.3 score formula.
+            the v1.4 score formula.
           example: 88
         codeHealthScore:
           type: integer
           minimum: 0
           maximum: 100
           description: >
-            100 = healthiest, 0 = most at-risk (scoring fiche v1.3). Computed as
+            100 = healthiest, 0 = most at-risk (scoring fiche v1.4). Computed as
             round(max(20, 100 - 55*cn - 45*an)) where cn is the normalized common-complexity
             penalty (0 when complexity <= 10, min(0.6, (cc - 10) / 40) otherwise) and an is
-            the normalized activity penalty (0 when not active, min(1, log(1 + r) /
-            log(1 + r_max)) when active). A plain integer — no letter grade is computed or
+            the normalized activity penalty (0 when not active; when active, the larger of
+            min(1, log(1 + r) / log(1 + r_max)) and min(1, log(1 + e) / log(1 + e_max)),
+            r being the churn ratio and e the effective lines). A plain integer — no letter grade is computed or
             transmitted. Present only if status = analyzed AND relativeScoringEnabled = true.
           example: 16
         quadrant:

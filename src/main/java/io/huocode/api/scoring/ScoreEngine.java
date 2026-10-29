@@ -12,17 +12,15 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.function.ToDoubleFunction;
 import java.util.function.ToIntFunction;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 /**
- * Score engine for scoring fiche v1.3 (docs/scoring-v1.3.md).
+ * Score engine for scoring fiche v1.4 (doc/scoring-v1.4.md).
  *
  * <p>Activity is the relative code churn of CodeScene-style engineering standards: the ratio
  * effectiveLines / linesOfCode. A file is "active" when it is a double guard:
@@ -34,7 +32,7 @@ import org.springframework.stereotype.Component;
  * </ul>
  *
  * <p>Score: round(max(20, 100 - 55*cn - 45*an)) where cn clamps at 0.6 and an at 1.0. Test files
- * (path under /test/ or *Test.java / *IT.java) are excluded from the repository health score.
+ * (see RepoAggregator.isTestPath) are excluded from the repository health score.
  *
  * <p>Since v1.3, complexity is the worst-method cyclomatic complexity of the file (PMD
  * methodReportLevel), which is compared to the industry per-function threshold (McCabe/SEI > 10,
@@ -45,7 +43,7 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class ScoreEngine {
 
-  public static final String SCORE_VERSION = "1.3";
+  public static final String SCORE_VERSION = "1.4";
 
   private static final int MIN_EFFECTIVE_LINES = 50;
   private static final double STDDEV_FACTOR = 2.0;
@@ -82,21 +80,20 @@ public class ScoreEngine {
     List<FileScore> top5 = List.of();
     int repoHealthScore = 0;
     if (relativeScoringEnabled) {
+      // Statistics come from production files only: test churn must not move the thresholds a
+      // production file is judged against. Test files are still scored against them.
+      List<FileMeasurement> production =
+          analyzed.stream().filter(measurement -> !measurement.isTest()).toList();
+      List<FileMeasurement> population = production.isEmpty() ? analyzed : production;
       Map<String, Integer> complexityPercentiles =
-          percentiles(analyzed, measurement -> measurement.complexity());
+          percentiles(analyzed, population, measurement -> measurement.complexity());
       Map<String, Integer> churnPercentiles =
-          percentiles(analyzed, measurement -> measurement.churn().effectiveLines());
+          percentiles(analyzed, population, measurement -> measurement.churn().effectiveLines());
       Distribution churnDistribution =
-          distribution(analyzed, measurement -> measurement.churn().effectiveLines());
-      Distribution ratioDistribution = distribution(analyzed, ScoreEngine::ratioOf);
+          distribution(population, measurement -> measurement.churn().effectiveLines());
+      Distribution ratioDistribution = distribution(population, ScoreEngine::ratioOf);
       double churnThreshold = churnDistribution.mean + STDDEV_FACTOR * churnDistribution.stdDev;
       double ratioThreshold = ratioDistribution.mean + STDDEV_FACTOR * ratioDistribution.stdDev;
-      Set<String> testPaths = new HashSet<>();
-      for (FileMeasurement measurement : analyzed) {
-        if (measurement.isTest()) {
-          testPaths.add(measurement.path());
-        }
-      }
       for (FileMeasurement measurement : analyzed) {
         boolean active = isActive(measurement, ratioThreshold, churnThreshold);
         boolean complex =
@@ -108,10 +105,13 @@ public class ScoreEngine {
                     (measurement.complexity() - properties.getExceedsCommonComplexityThreshold())
                         / 40.0)
                 : 0.0;
+        // Each guard brings its own penalty, so a file active by volume is not let off because a
+        // tiny file elsewhere has an extreme ratio: an = max(ratio penalty, volume penalty).
         double activityPenalty =
-            active && ratioDistribution.maxValue > 0
-                ? Math.min(
-                    1.0, Math.log1p(ratioOf(measurement)) / Math.log1p(ratioDistribution.maxValue))
+            active
+                ? Math.max(
+                    logNormalized(ratioOf(measurement), ratioDistribution.maxValue),
+                    logNormalized(measurement.churn().effectiveLines(), churnDistribution.maxValue))
                 : 0.0;
         int codeHealthScore =
             (int)
@@ -130,12 +130,15 @@ public class ScoreEngine {
                 quadrant(active, complex));
         scoresByPath.put(measurement.path(), score);
       }
+      // The summary, top 5 and repo score describe production code, like the statistics.
+      List<FileScore> productionScores =
+          production.stream().map(measurement -> scoresByPath.get(measurement.path())).toList();
       quadrantCounts = new EnumMap<>(QuadrantKind.class);
-      for (FileScore score : scoresByPath.values()) {
+      for (FileScore score : productionScores) {
         quadrantCounts.merge(score.quadrant(), 1, Integer::sum);
       }
-      repoHealthScore = averageHealth(analyzed, scoresByPath, testPaths);
-      top5 = topScores(scoresByPath.values());
+      repoHealthScore = averageHealth(production, scoresByPath);
+      top5 = topScores(productionScores);
     }
 
     int unanalyzedCount = measurements.size() - analyzed.size();
@@ -155,6 +158,10 @@ public class ScoreEngine {
       return 0.0;
     }
     return (double) measurement.churn().effectiveLines() / linesOfCode;
+  }
+
+  private static double logNormalized(double value, double maxValue) {
+    return maxValue > 0 ? Math.min(1.0, Math.log1p(value) / Math.log1p(maxValue)) : 0.0;
   }
 
   private static boolean isActive(
@@ -187,15 +194,10 @@ public class ScoreEngine {
   }
 
   private static int averageHealth(
-      List<FileMeasurement> measurements,
-      Map<String, FileScore> scoresByPath,
-      Set<String> excludedPaths) {
+      List<FileMeasurement> measurements, Map<String, FileScore> scoresByPath) {
     double weightedSum = 0;
     int totalLoc = 0;
     for (FileMeasurement m : measurements) {
-      if (excludedPaths.contains(m.path())) {
-        continue;
-      }
       FileScore score = scoresByPath.get(m.path());
       if (score == null) {
         continue;
@@ -236,25 +238,35 @@ public class ScoreEngine {
     return new Distribution(mean, stdDev, max);
   }
 
+  /**
+   * CDF percentile of each file's value within the population: the share of population files whose
+   * value is lower or equal, so tied values share a percentile.
+   */
   private static Map<String, Integer> percentiles(
-      List<FileMeasurement> analyzed, ToIntFunction<FileMeasurement> valueOf) {
-    List<FileMeasurement> sorted = new ArrayList<>(analyzed);
-    sorted.sort(Comparator.comparingInt(valueOf));
-    Map<String, Integer> percentiles = new HashMap<>(analyzed.size());
-    int size = sorted.size();
-    int index = 0;
-    while (index < size) {
-      int value = valueOf.applyAsInt(sorted.get(index));
-      int upperBound = index + 1;
-      while (upperBound < size && valueOf.applyAsInt(sorted.get(upperBound)) == value) {
-        upperBound++;
-      }
-      int percentile = Math.round(100.0f * upperBound / size);
-      for (int i = index; i < upperBound; i++) {
-        percentiles.put(sorted.get(i).path(), percentile);
-      }
-      index = upperBound;
+      List<FileMeasurement> files,
+      List<FileMeasurement> population,
+      ToIntFunction<FileMeasurement> valueOf) {
+    int[] sorted = population.stream().mapToInt(valueOf).sorted().toArray();
+    Map<String, Integer> percentiles = new HashMap<>(files.size());
+    for (FileMeasurement file : files) {
+      int value = valueOf.applyAsInt(file);
+      int atOrBelow = upperBound(sorted, value);
+      percentiles.put(file.path(), Math.round(100.0f * atOrBelow / sorted.length));
     }
     return percentiles;
+  }
+
+  private static int upperBound(int[] sorted, int value) {
+    int low = 0;
+    int high = sorted.length;
+    while (low < high) {
+      int middle = (low + high) >>> 1;
+      if (sorted[middle] <= value) {
+        low = middle + 1;
+      } else {
+        high = middle;
+      }
+    }
+    return low;
   }
 }

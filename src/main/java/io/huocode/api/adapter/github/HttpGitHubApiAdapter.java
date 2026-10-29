@@ -1,26 +1,27 @@
 package io.huocode.api.adapter.github;
 
-import static io.huocode.api.adapter.github.CommitReader.authorOf;
-import static io.huocode.api.adapter.github.CommitReader.dateOf;
-import static io.huocode.api.adapter.github.CommitReader.fetchCommits;
-import static io.huocode.api.adapter.github.CommitReader.isBotAuthor;
+import static io.huocode.api.adapter.github.CommitReader.commitChurn;
+import static io.huocode.api.adapter.github.CommitReader.fetchNonMergeCommits;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import io.huocode.api.exception.RepoNotFoundException;
-import io.huocode.api.model.AnalysisWindowData;
-import io.huocode.api.model.Churn;
+import io.huocode.api.model.RepoChurn;
 import io.huocode.api.model.RepoUrl;
 import io.huocode.api.port.GitHubApiPort;
-import java.time.Instant;
+import io.huocode.api.utils.ChurnParser;
+import io.huocode.api.utils.ChurnParser.CommitChurn;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Optional;
-import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import org.springframework.stereotype.Component;
 
 @Component
 public class HttpGitHubApiAdapter implements GitHubApiPort {
+
+  private static final int MAX_CONCURRENT_FETCHES = 8;
 
   private final GitHubApiHttp http;
 
@@ -87,53 +88,40 @@ public class HttpGitHubApiAdapter implements GitHubApiPort {
   }
 
   @Override
-  public Churn churnForPath(RepoUrl repoUrl, String path, int maxCommits) {
-    int commits = 0;
-    Set<String> authors = new HashSet<>();
-    int linesAdded = 0;
-    int linesDeleted = 0;
-    for (JsonNode item : fetchCommits(http, repoUrl, path, maxCommits)) {
-      if (isBotAuthor(item)) {
-        continue;
+  public RepoChurn repoChurn(RepoUrl repoUrl, String commitSha, int maxCommits) {
+    List<JsonNode> commits = fetchNonMergeCommits(http, repoUrl, commitSha, maxCommits);
+    int threads = Math.max(1, Math.min(MAX_CONCURRENT_FETCHES, commits.size()));
+    ExecutorService executor = Executors.newFixedThreadPool(threads);
+    try {
+      // One detail request per commit, shared by every file it touches. Failures propagate:
+      // a missing diff must fail the analysis, never be scored as zero churn.
+      List<CompletableFuture<CommitChurn>> details =
+          commits.stream()
+              .map(
+                  item ->
+                      CompletableFuture.supplyAsync(
+                          () -> commitChurn(http, repoUrl, item), executor))
+              .toList();
+      List<CommitChurn> newestFirst = new ArrayList<>(details.size());
+      for (CompletableFuture<CommitChurn> detail : details) {
+        newestFirst.add(join(detail));
       }
-      commits++;
-      String author = authorOf(item);
-      if (!author.isEmpty()) {
-        authors.add(author);
-      }
-      // Commit detail (lines per file) may be unavailable (rate limit/404): the commit
-      // then counts as touching 0 content lines — commit/author counts stay exact.
-      Optional<CommitReader.FileLines> detail =
-          CommitReader.fileLines(http, repoUrl, item.path("sha").asText(), path);
-      if (detail.isPresent()) {
-        linesAdded += detail.get().added();
-        linesDeleted += detail.get().deleted();
-      }
+      return ChurnParser.aggregate(newestFirst);
+    } finally {
+      executor.shutdownNow();
     }
-    return commits == 0 && authors.isEmpty()
-        ? Churn.ZERO
-        : new Churn(commits, authors.size(), linesAdded, linesDeleted);
   }
 
-  @Override
-  public AnalysisWindowData analysisWindow(RepoUrl repoUrl, int maxCommits) {
-    int commitsAnalyzed = 0;
-    Set<String> authors = new HashSet<>();
-    List<Instant> dates = new ArrayList<>();
-    for (JsonNode item : fetchCommits(http, repoUrl, null, maxCommits)) {
-      if (isBotAuthor(item)) {
-        continue;
+  private static <T> T join(CompletableFuture<T> future) {
+    try {
+      return future.join();
+    } catch (CompletionException e) {
+      Throwable cause = e.getCause() != null ? e.getCause() : e;
+      if (cause instanceof RuntimeException runtimeException) {
+        throw runtimeException;
       }
-      commitsAnalyzed++;
-      String author = authorOf(item);
-      if (!author.isEmpty()) {
-        authors.add(author);
-      }
-      dateOf(item).ifPresent(dates::add);
+      throw new IllegalStateException(cause);
     }
-    Instant oldest = dates.stream().min(Instant::compareTo).orElse(null);
-    Instant newest = dates.stream().max(Instant::compareTo).orElse(null);
-    return new AnalysisWindowData(commitsAnalyzed, oldest, newest, authors.size());
   }
 
   private JsonNode tree(RepoUrl repoUrl, String commitSha) {

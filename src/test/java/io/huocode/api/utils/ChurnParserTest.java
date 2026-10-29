@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.huocode.api.model.Churn;
 import io.huocode.api.model.RepoChurn;
 import java.time.Instant;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class ChurnParserTest {
@@ -64,5 +65,38 @@ class ChurnParserTest {
     assertEquals(0, churn.window().commitsAnalyzed());
     assertEquals(0, churn.window().distinctAuthors());
     assertTrue(churn.churnByPath().isEmpty());
+  }
+
+  @Test
+  void aggregate_attributes_history_before_a_rename_to_the_current_path() {
+    List<ChurnParser.CommitChurn> newestFirst =
+        List.of(
+            new ChurnParser.CommitChurn(
+                "Bob", null, List.of(new ChurnParser.PathChange("b/F.java", 2, 0))),
+            new ChurnParser.CommitChurn(
+                "Bob", null, List.of(new ChurnParser.PathChange("b/F.java", "a/F.java", 0, 0))),
+            new ChurnParser.CommitChurn(
+                "Alice", null, List.of(new ChurnParser.PathChange("a/F.java", 10, 3))));
+
+    RepoChurn churn = ChurnParser.aggregate(newestFirst);
+
+    assertEquals(new Churn(3, 2, 12, 3), churn.churnByPath().get("b/F.java"));
+    assertFalse(churn.churnByPath().containsKey("a/F.java"));
+  }
+
+  @Test
+  void countPatchLines_skips_headers_and_blank_lines_but_keeps_dash_prefixed_content() {
+    String patch =
+        "diff --git a/A.java b/A.java\n"
+            + "--- a/A.java\n"
+            + "+++ b/A.java\n"
+            + "@@ -1,3 +1,3 @@\n"
+            + "---i;\n"
+            + "+++i;\n"
+            + "+\n"
+            + "-   \n"
+            + "\\ No newline at end of file\n";
+
+    assertEquals(new ChurnParser.LineCounts(1, 1), ChurnParser.countPatchLines(patch));
   }
 }

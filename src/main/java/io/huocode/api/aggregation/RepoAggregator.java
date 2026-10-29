@@ -22,6 +22,7 @@ import io.huocode.api.retrieval.RetrievalStrategySelector;
 import io.huocode.api.scoring.ScoreEngine;
 import io.huocode.api.utils.FilesUtils;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -30,7 +31,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Stream;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -40,6 +40,11 @@ public class RepoAggregator {
 
   private static final String CLONE_DIRECTORY = "clone";
   private static final String WORK_DIRECTORY = "repo";
+  private static final List<String> TEST_DIRECTORIES =
+      List.of("test", "tests", "testFixtures", "integrationTest");
+  // Default Surefire/Failsafe includes, plus the Spring *Tests convention.
+  private static final List<String> TEST_SUFFIXES =
+      List.of("Test.java", "Tests.java", "TestCase.java", "IT.java", "ITCase.java");
 
   private final RetrievalStrategySelector strategySelector;
   private final CloneRetriever cloneRetriever;
@@ -169,16 +174,25 @@ public class RepoAggregator {
     return measurements;
   }
 
-  private static boolean isTestPath(String file) {
-    String normalized = file.replace('\\', '/');
-    return normalized.contains("/test/")
-        || normalized.endsWith("Test.java")
-        || normalized.endsWith("IT.java");
+  static boolean isTestPath(String file) {
+    String normalized = "/" + file.replace('\\', '/');
+    // Maven/Gradle production sources stay production, whatever their package or name
+    // (e.g. spring-test ships org/springframework/test under src/main).
+    if (normalized.contains("/src/main/")) {
+      return false;
+    }
+    String directory = normalized.substring(0, normalized.lastIndexOf('/') + 1);
+    String name = normalized.substring(directory.length());
+    return TEST_DIRECTORIES.stream().anyMatch(segment -> directory.contains("/" + segment + "/"))
+        || TEST_SUFFIXES.stream().anyMatch(name::endsWith);
   }
 
-  private static int linesOfCode(Path file) {
-    try (Stream<String> lines = Files.lines(file)) {
-      return (int) lines.filter(line -> !line.trim().isEmpty()).count();
+  static int linesOfCode(Path file) {
+    try {
+      // Decoding bytes replaces malformed input (e.g. a Latin-1 source) instead of throwing
+      // the UncheckedIOException that Files.lines raises mid-stream.
+      String content = new String(Files.readAllBytes(file), StandardCharsets.UTF_8);
+      return (int) content.lines().filter(line -> !line.isBlank()).count();
     } catch (IOException e) {
       return 0;
     }
