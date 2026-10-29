@@ -213,6 +213,24 @@ class ScoreEngineTest {
     assertEquals("prodHot.java", score.top5().get(0).path());
   }
 
+  @Test
+  void a_tiny_file_with_an_extreme_ratio_does_not_cancel_the_penalty_of_a_large_active_file() {
+    List<FileMeasurement> measurements = new ArrayList<>();
+    for (int i = 1; i <= 14; i++) {
+      measurements.add(analyzed("calm_" + i + ".java", 1, 0, 100, false));
+    }
+    // Ratio 150: the repo maximum.
+    measurements.add(analyzed("tiny.java", 1, 300, 2, false));
+    // Ratio 0.75 only, but 1500 effective lines: active by volume (threshold ~868).
+    measurements.add(analyzed("large.java", 1, 1500, 2000, false));
+
+    RepoScore score = engine.score(measurements);
+
+    // Ratio-only normalization gave large.java an = log1p(0.75) / log1p(150) = 0.11, i.e. 95.
+    assertScore(score, "large.java", 55, 100, 100, QuadrantKind.FREQUENT_SIMPLE);
+    assertScore(score, "tiny.java", 55, 100, 94, QuadrantKind.FREQUENT_SIMPLE);
+  }
+
   private static void assertScore(
       RepoScore score,
       String path,

@@ -105,10 +105,13 @@ public class ScoreEngine {
                     (measurement.complexity() - properties.getExceedsCommonComplexityThreshold())
                         / 40.0)
                 : 0.0;
+        // Each guard brings its own penalty, so a file active by volume is not let off because a
+        // tiny file elsewhere has an extreme ratio: an = max(ratio penalty, volume penalty).
         double activityPenalty =
-            active && ratioDistribution.maxValue > 0
-                ? Math.min(
-                    1.0, Math.log1p(ratioOf(measurement)) / Math.log1p(ratioDistribution.maxValue))
+            active
+                ? Math.max(
+                    logNormalized(ratioOf(measurement), ratioDistribution.maxValue),
+                    logNormalized(measurement.churn().effectiveLines(), churnDistribution.maxValue))
                 : 0.0;
         int codeHealthScore =
             (int)
@@ -155,6 +158,10 @@ public class ScoreEngine {
       return 0.0;
     }
     return (double) measurement.churn().effectiveLines() / linesOfCode;
+  }
+
+  private static double logNormalized(double value, double maxValue) {
+    return maxValue > 0 ? Math.min(1.0, Math.log1p(value) / Math.log1p(maxValue)) : 0.0;
   }
 
   private static boolean isActive(
