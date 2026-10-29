@@ -12,10 +12,8 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.function.ToDoubleFunction;
 import java.util.function.ToIntFunction;
 import lombok.RequiredArgsConstructor;
@@ -82,21 +80,20 @@ public class ScoreEngine {
     List<FileScore> top5 = List.of();
     int repoHealthScore = 0;
     if (relativeScoringEnabled) {
+      // Statistics come from production files only: test churn must not move the thresholds a
+      // production file is judged against. Test files are still scored against them.
+      List<FileMeasurement> production =
+          analyzed.stream().filter(measurement -> !measurement.isTest()).toList();
+      List<FileMeasurement> population = production.isEmpty() ? analyzed : production;
       Map<String, Integer> complexityPercentiles =
-          percentiles(analyzed, measurement -> measurement.complexity());
+          percentiles(analyzed, population, measurement -> measurement.complexity());
       Map<String, Integer> churnPercentiles =
-          percentiles(analyzed, measurement -> measurement.churn().effectiveLines());
+          percentiles(analyzed, population, measurement -> measurement.churn().effectiveLines());
       Distribution churnDistribution =
-          distribution(analyzed, measurement -> measurement.churn().effectiveLines());
-      Distribution ratioDistribution = distribution(analyzed, ScoreEngine::ratioOf);
+          distribution(population, measurement -> measurement.churn().effectiveLines());
+      Distribution ratioDistribution = distribution(population, ScoreEngine::ratioOf);
       double churnThreshold = churnDistribution.mean + STDDEV_FACTOR * churnDistribution.stdDev;
       double ratioThreshold = ratioDistribution.mean + STDDEV_FACTOR * ratioDistribution.stdDev;
-      Set<String> testPaths = new HashSet<>();
-      for (FileMeasurement measurement : analyzed) {
-        if (measurement.isTest()) {
-          testPaths.add(measurement.path());
-        }
-      }
       for (FileMeasurement measurement : analyzed) {
         boolean active = isActive(measurement, ratioThreshold, churnThreshold);
         boolean complex =
@@ -130,12 +127,15 @@ public class ScoreEngine {
                 quadrant(active, complex));
         scoresByPath.put(measurement.path(), score);
       }
+      // The summary, top 5 and repo score describe production code, like the statistics.
+      List<FileScore> productionScores =
+          production.stream().map(measurement -> scoresByPath.get(measurement.path())).toList();
       quadrantCounts = new EnumMap<>(QuadrantKind.class);
-      for (FileScore score : scoresByPath.values()) {
+      for (FileScore score : productionScores) {
         quadrantCounts.merge(score.quadrant(), 1, Integer::sum);
       }
-      repoHealthScore = averageHealth(analyzed, scoresByPath, testPaths);
-      top5 = topScores(scoresByPath.values());
+      repoHealthScore = averageHealth(production, scoresByPath);
+      top5 = topScores(productionScores);
     }
 
     int unanalyzedCount = measurements.size() - analyzed.size();
@@ -187,15 +187,10 @@ public class ScoreEngine {
   }
 
   private static int averageHealth(
-      List<FileMeasurement> measurements,
-      Map<String, FileScore> scoresByPath,
-      Set<String> excludedPaths) {
+      List<FileMeasurement> measurements, Map<String, FileScore> scoresByPath) {
     double weightedSum = 0;
     int totalLoc = 0;
     for (FileMeasurement m : measurements) {
-      if (excludedPaths.contains(m.path())) {
-        continue;
-      }
       FileScore score = scoresByPath.get(m.path());
       if (score == null) {
         continue;
@@ -236,25 +231,35 @@ public class ScoreEngine {
     return new Distribution(mean, stdDev, max);
   }
 
+  /**
+   * CDF percentile of each file's value within the population: the share of population files whose
+   * value is lower or equal, so tied values share a percentile.
+   */
   private static Map<String, Integer> percentiles(
-      List<FileMeasurement> analyzed, ToIntFunction<FileMeasurement> valueOf) {
-    List<FileMeasurement> sorted = new ArrayList<>(analyzed);
-    sorted.sort(Comparator.comparingInt(valueOf));
-    Map<String, Integer> percentiles = new HashMap<>(analyzed.size());
-    int size = sorted.size();
-    int index = 0;
-    while (index < size) {
-      int value = valueOf.applyAsInt(sorted.get(index));
-      int upperBound = index + 1;
-      while (upperBound < size && valueOf.applyAsInt(sorted.get(upperBound)) == value) {
-        upperBound++;
-      }
-      int percentile = Math.round(100.0f * upperBound / size);
-      for (int i = index; i < upperBound; i++) {
-        percentiles.put(sorted.get(i).path(), percentile);
-      }
-      index = upperBound;
+      List<FileMeasurement> files,
+      List<FileMeasurement> population,
+      ToIntFunction<FileMeasurement> valueOf) {
+    int[] sorted = population.stream().mapToInt(valueOf).sorted().toArray();
+    Map<String, Integer> percentiles = new HashMap<>(files.size());
+    for (FileMeasurement file : files) {
+      int value = valueOf.applyAsInt(file);
+      int atOrBelow = upperBound(sorted, value);
+      percentiles.put(file.path(), Math.round(100.0f * atOrBelow / sorted.length));
     }
     return percentiles;
+  }
+
+  private static int upperBound(int[] sorted, int value) {
+    int low = 0;
+    int high = sorted.length;
+    while (low < high) {
+      int middle = (low + high) >>> 1;
+      if (sorted[middle] <= value) {
+        low = middle + 1;
+      } else {
+        high = middle;
+      }
+    }
+    return low;
   }
 }

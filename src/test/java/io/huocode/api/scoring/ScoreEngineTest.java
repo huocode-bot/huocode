@@ -66,17 +66,19 @@ class ScoreEngineTest {
     // (r >= mean + 2 sigma & effective lines >= 50) OR effective lines >= mean + 2 sigma.
     // complexity is the worst-method value (40 here) — a single god-method is flagged,
     // whatever the (simulated) number of small methods around it.
+    // Percentiles are taken within the 19 production files (17 of them at 1 / 0): 17/19 -> 89.
     assertScore(score, "hot.java", 22, 100, 100, QuadrantKind.HOTSPOT);
     assertScore(score, "testHot.java", 22, 100, 100, QuadrantKind.HOTSPOT);
-    assertScore(score, "onlyChurn.java", 55, 85, 100, QuadrantKind.FREQUENT_SIMPLE);
-    assertScore(score, "onlyComplex.java", 67, 100, 85, QuadrantKind.COMPLEX_STABLE);
-    assertScore(score, "base_1.java", 100, 85, 85, QuadrantKind.HEALTHY);
+    assertScore(score, "onlyChurn.java", 55, 89, 100, QuadrantKind.FREQUENT_SIMPLE);
+    assertScore(score, "onlyComplex.java", 67, 100, 89, QuadrantKind.COMPLEX_STABLE);
+    assertScore(score, "base_1.java", 100, 89, 89, QuadrantKind.HEALTHY);
 
     // The activity penalty outweighs the complexity penalty: 55*cn <= 33 pts, 45*an <= 45 pts.
     assertTrue(scoreOf(score, "hot.java") < scoreOf(score, "onlyChurn.java"));
     assertTrue(scoreOf(score, "onlyChurn.java") < scoreOf(score, "onlyComplex.java"));
 
-    assertEquals(2, score.quadrantCounts().get(QuadrantKind.HOTSPOT));
+    // The summary covers production files only: testHot.java is scored but not counted.
+    assertEquals(1, score.quadrantCounts().get(QuadrantKind.HOTSPOT));
     assertEquals(1, score.quadrantCounts().get(QuadrantKind.COMPLEX_STABLE));
     assertEquals(1, score.quadrantCounts().get(QuadrantKind.FREQUENT_SIMPLE));
     assertEquals(16, score.quadrantCounts().get(QuadrantKind.HEALTHY));
@@ -86,7 +88,8 @@ class ScoreEngineTest {
 
     assertEquals(5, score.top5().size());
     assertEquals("hot.java", score.top5().get(0).path());
-    assertEquals("base_1.java", score.top5().get(4).path());
+    assertTrue(score.top5().stream().noneMatch(file -> file.path().equals("testHot.java")));
+    assertEquals("base_10.java", score.top5().get(4).path());
   }
 
   @Test
@@ -187,6 +190,27 @@ class ScoreEngineTest {
           () -> "quadrant of " + path);
     }
     assertEquals(100, score.repoHealthScore());
+  }
+
+  @Test
+  void test_file_churn_does_not_move_the_production_activity_threshold() {
+    List<FileMeasurement> measurements = new ArrayList<>();
+    for (int i = 0; i < 15; i++) {
+      measurements.add(analyzed("f" + i + ".java", 1, 0, 100, false));
+    }
+    measurements.add(analyzed("prodHot.java", 1, 300, 100, false));
+    // Heavily edited tests: counted in the population, they would push mean + 2 sigma above 300.
+    for (int i = 0; i < 6; i++) {
+      measurements.add(analyzed("t" + i + "Test.java", 1, 2000, 100, true));
+    }
+
+    RepoScore score = engine.score(measurements);
+
+    assertEquals(QuadrantKind.FREQUENT_SIMPLE, score.scoresByPath().get("prodHot.java").quadrant());
+    assertEquals(100, score.scoresByPath().get("prodHot.java").churnPercentile());
+    assertEquals(QuadrantKind.FREQUENT_SIMPLE, score.scoresByPath().get("t0Test.java").quadrant());
+    assertEquals(1, score.quadrantCounts().get(QuadrantKind.FREQUENT_SIMPLE));
+    assertEquals("prodHot.java", score.top5().get(0).path());
   }
 
   private static void assertScore(
