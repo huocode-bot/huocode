@@ -5,11 +5,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import io.huocode.api.conf.AnalysisProperties;
 import io.huocode.api.model.AnalysisWindowData;
 import io.huocode.api.model.Churn;
+import io.huocode.api.model.RepoChurn;
 import io.huocode.api.model.RepoUrl;
 import io.huocode.api.port.GitHubApiPort;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -38,31 +39,28 @@ class ApiDirectRetrieverTest {
   private static final AnalysisWindowData WINDOW =
       new AnalysisWindowData(
           10, Instant.parse("2024-01-01T00:00:00Z"), Instant.parse("2024-01-10T00:00:00Z"), 3);
+  private static final Map<String, Churn> CHURN = Map.of("A.java", new Churn(2, 1, 5, 1));
 
   @Test
-  void retrieve_fetches_content_churn_and_window_for_every_file() {
+  void retrieve_fetches_java_contents_and_the_repo_churn_once() {
     StubGitHubApiPort port = new StubGitHubApiPort();
     ApiDirectRetriever retriever = new ApiDirectRetriever(port, PROPERTIES);
 
     ApiDirectRetrieverData data = retriever.retrieve(REPO, "sha1");
 
     assertEquals("sha1", data.sha());
-    assertEquals(List.of("A.java", "src/B.java"), data.files());
+    assertEquals(List.of("A.java", "src/B.java", "README.md"), data.files());
     assertEquals("content:A.java", data.contents().get("A.java"));
     assertEquals("content:src/B.java", data.contents().get("src/B.java"));
-    assertEquals(
-        new Churn("A.java".length(), 2, "A.java".length(), 0), data.churnByPath().get("A.java"));
-    assertEquals(
-        new Churn("src/B.java".length(), 2, "src/B.java".length(), 0),
-        data.churnByPath().get("src/B.java"));
-    assertEquals(500, port.churnCalls.get("A.java"));
-    assertEquals(500, port.churnCalls.get("src/B.java"));
+    assertEquals(2, data.contents().size());
+    assertEquals(CHURN, data.churnByPath());
+    assertEquals(List.of("sha1:500"), port.churnCalls);
     assertEquals(WINDOW, data.window());
   }
 
   private static final class StubGitHubApiPort implements GitHubApiPort {
 
-    final Map<String, Integer> churnCalls = new HashMap<>();
+    final List<String> churnCalls = new ArrayList<>();
 
     @Override
     public boolean repoExists(RepoUrl repoUrl) {
@@ -81,7 +79,7 @@ class ApiDirectRetrieverTest {
 
     @Override
     public List<String> listAllPaths(RepoUrl repoUrl, String commitSha) {
-      return List.of("A.java", "src/B.java");
+      return List.of("A.java", "src/B.java", "README.md");
     }
 
     @Override
@@ -95,14 +93,9 @@ class ApiDirectRetrieverTest {
     }
 
     @Override
-    public Churn churnForPath(RepoUrl repoUrl, String path, int maxCommits) {
-      churnCalls.put(path, maxCommits);
-      return new Churn(path.length(), 2, path.length(), 0);
-    }
-
-    @Override
-    public AnalysisWindowData analysisWindow(RepoUrl repoUrl, int maxCommits) {
-      return WINDOW;
+    public synchronized RepoChurn repoChurn(RepoUrl repoUrl, String commitSha, int maxCommits) {
+      churnCalls.add(commitSha + ":" + maxCommits);
+      return new RepoChurn(CHURN, WINDOW);
     }
   }
 }

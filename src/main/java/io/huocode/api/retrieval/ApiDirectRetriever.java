@@ -2,8 +2,7 @@ package io.huocode.api.retrieval;
 
 import io.huocode.api.conf.AnalysisProperties;
 import io.huocode.api.language.LanguageDetector;
-import io.huocode.api.model.AnalysisWindowData;
-import io.huocode.api.model.Churn;
+import io.huocode.api.model.RepoChurn;
 import io.huocode.api.model.RepoUrl;
 import io.huocode.api.port.GitHubApiPort;
 import java.nio.file.Path;
@@ -28,39 +27,26 @@ public class ApiDirectRetriever {
 
   public ApiDirectRetrieverData retrieve(RepoUrl repoUrl, String sha) {
     List<String> files = gitHubApiPort.listAllPaths(repoUrl, sha);
-    int commitWindow = properties.getCommitWindow();
+    List<String> javaFiles =
+        files.stream().filter(file -> LanguageDetector.isJava(Path.of(file))).toList();
     Map<String, String> contents = new ConcurrentHashMap<>();
-    Map<String, Churn> churnByPath = new ConcurrentHashMap<>();
-    int threads = Math.max(1, Math.min(MAX_CONCURRENT_FETCHES, files.size()));
+    int threads = Math.max(1, Math.min(MAX_CONCURRENT_FETCHES, javaFiles.size()));
     ExecutorService executor = Executors.newFixedThreadPool(threads);
     try {
       List<CompletableFuture<Void>> futures =
-          files.stream()
+          javaFiles.stream()
               .map(
                   file ->
                       CompletableFuture.runAsync(
-                          () -> fetchFor(repoUrl, sha, commitWindow, file, contents, churnByPath),
+                          () -> contents.put(file, gitHubApiPort.rawContent(repoUrl, file, sha)),
                           executor))
               .toList();
       join(futures);
     } finally {
       executor.shutdown();
     }
-    AnalysisWindowData window = gitHubApiPort.analysisWindow(repoUrl, commitWindow);
-    return new ApiDirectRetrieverData(sha, files, contents, churnByPath, window);
-  }
-
-  private void fetchFor(
-      RepoUrl repoUrl,
-      String sha,
-      int commitWindow,
-      String file,
-      Map<String, String> contents,
-      Map<String, Churn> churnByPath) {
-    churnByPath.put(file, gitHubApiPort.churnForPath(repoUrl, file, commitWindow));
-    if (LanguageDetector.isJava(Path.of(file))) {
-      contents.put(file, gitHubApiPort.rawContent(repoUrl, file, sha));
-    }
+    RepoChurn churn = gitHubApiPort.repoChurn(repoUrl, sha, properties.getCommitWindow());
+    return new ApiDirectRetrieverData(sha, files, contents, churn.churnByPath(), churn.window());
   }
 
   private static void join(List<CompletableFuture<Void>> futures) {

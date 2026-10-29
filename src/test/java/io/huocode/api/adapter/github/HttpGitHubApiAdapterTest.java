@@ -6,12 +6,13 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import io.huocode.api.conf.AnalysisProperties;
 import io.huocode.api.exception.GitHubRateLimitReachedException;
 import io.huocode.api.exception.RepoNotFoundException;
-import io.huocode.api.model.AnalysisWindowData;
 import io.huocode.api.model.Churn;
+import io.huocode.api.model.RepoChurn;
 import io.huocode.api.model.RepoUrl;
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -126,24 +127,60 @@ class HttpGitHubApiAdapterTest {
   }
 
   @Test
-  void churnForPath_filters_bots_and_counts_authors_and_lines() {
-    stub(
+  void repoChurn_reads_the_window_of_the_analyzed_commit_like_the_clone_path() {
+    List<String> unstubbedRequests = new ArrayList<>();
+    server.createContext(
         "/repos/owner/repo/commits",
+        exchange -> {
+          unstubbedRequests.add(exchange.getRequestURI().toString());
+          String body =
+              "["
+                  + commitJson("c3", "bob", "2024-01-04T10:00:00Z")
+                  + ","
+                  + commitJson("c2", "bob", "2024-01-03T10:00:00Z")
+                  + ","
+                  + mergeJson("m1")
+                  + ","
+                  + commitJson("c1", "octocat", "2024-01-02T10:00:00Z")
+                  + ","
+                  + commitJson("c0", "dependabot[bot]", "2024-01-01T10:00:00Z")
+                  + "]";
+          respond(exchange, 200, body);
+        });
+    // c3 is a pure move: no patch, no lines.
+    stub(
+        "/repos/owner/repo/commits/c3",
         200,
-        "["
-            + commitJson("c1", "octocat", "2024-01-01T10:00:00Z")
-            + ","
-            + commitJson("c2", "bob", "2024-01-02T10:00:00Z")
-            + ","
-            + commitJson("c3", "dependabot[bot]", "2024-01-03T10:00:00Z")
-            + "]");
-    stub("/repos/owner/repo/commits/c1", 200, commitDetailJson("src/A.java", 3, 1));
-    stub("/repos/owner/repo/commits/c2", 200, commitDetailJson("src/A.java", 1, 0));
-    assertEquals(new Churn(2, 2, 4, 1), adapter.churnForPath(REPO, "src/A.java", 500));
+        "{\"files\":[{\"filename\":\"src/A.java\",\"status\":\"renamed\","
+            + "\"previous_filename\":\"old/A.java\",\"additions\":0,\"deletions\":0}]}");
+    // The blank added line is not counted, as in the clone path.
+    stub(
+        "/repos/owner/repo/commits/c2",
+        200,
+        patchDetailJson("src/A.java", "@@ -1 +1,2 @@\\n-a\\n+b\\n+"));
+    stub(
+        "/repos/owner/repo/commits/c1",
+        200,
+        patchDetailJson("old/A.java", "@@ -0,0 +1,3 @@\\n+x\\n+y\\n+z"));
+    stub("/repos/owner/repo/commits/c0", 200, patchDetailJson("pom.xml", "@@ -1 +1 @@\\n-1\\n+2"));
+
+    RepoChurn churn = adapter.repoChurn(REPO, SHA, 500);
+
+    assertEquals(new Churn(3, 2, 4, 1), churn.churnByPath().get("src/A.java"));
+    assertFalse(churn.churnByPath().containsKey("old/A.java"));
+    assertFalse(churn.churnByPath().containsKey("pom.xml"));
+    assertEquals(3, churn.window().commitsAnalyzed());
+    assertEquals(2, churn.window().distinctAuthors());
+    assertEquals(Instant.parse("2024-01-02T10:00:00Z"), churn.window().oldestCommitDate());
+    assertEquals(Instant.parse("2024-01-04T10:00:00Z"), churn.window().newestCommitDate());
+    assertEquals(
+        List.of("/repos/owner/repo/commits?sha=" + SHA + "&per_page=100&page=1"),
+        unstubbedRequests,
+        "the window starts at the analyzed commit and merge commits are never diffed");
   }
 
   @Test
-  void churnForPath_paginates_until_window_is_filled() {
+  void repoChurn_paginates_until_window_is_filled() {
     List<String> requestedPages = new ArrayList<>();
     server.createContext(
         "/repos/owner/repo/commits",
@@ -152,37 +189,26 @@ class HttpGitHubApiAdapterTest {
           Matcher matcher = PAGE_PARAM.matcher(query == null ? "" : query);
           String page = matcher.find() ? matcher.group(1) : "1";
           requestedPages.add(page);
-          String body = "1".equals(page) ? commitsJson(100, "octocat") : "[]";
-          byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
-          exchange.sendResponseHeaders(200, bytes.length);
-          try (var os = exchange.getResponseBody()) {
-            os.write(bytes);
-          }
-          exchange.close();
+          respond(exchange, 200, "1".equals(page) ? commitsJson(100, "octocat") : "[]");
         });
-    // Commit-detail calls (one per non-bot commit) fall back to 0 lines here: no detail
-    // stub registered, so the shared handler answers with the commits array (no "files").
-    assertEquals(new Churn(100, 1, 0, 0), adapter.churnForPath(REPO, "src/A.java", 500));
+    // Commit-detail calls hit the same handler and get an array with no "files": 0 lines.
+    RepoChurn churn = adapter.repoChurn(REPO, SHA, 500);
+    assertEquals(100, churn.window().commitsAnalyzed());
     assertEquals(List.of("1", "2"), requestedPages.stream().distinct().toList());
   }
 
   @Test
-  void analysisWindow_collects_dates_and_authors() {
+  void repoChurn_fails_instead_of_scoring_zero_churn_when_a_diff_is_unavailable() {
     stub(
         "/repos/owner/repo/commits",
         200,
-        "["
-            + commitJson("c1", "octocat", "2024-01-01T10:00:00Z")
-            + ","
-            + commitJson("c2", "bob", "2024-01-02T10:00:00Z")
-            + ","
-            + commitJson("c3", "renovate[bot]", "2024-01-03T10:00:00Z")
-            + "]");
-    AnalysisWindowData window = adapter.analysisWindow(REPO, 500);
-    assertEquals(2, window.commitsAnalyzed());
-    assertEquals(2, window.distinctAuthors());
-    assertEquals(Instant.parse("2024-01-01T10:00:00Z"), window.oldestCommitDate());
-    assertEquals(Instant.parse("2024-01-02T10:00:00Z"), window.newestCommitDate());
+        "[" + commitJson("c1", "octocat", "2024-01-01T10:00:00Z") + "]");
+    stub(
+        Map.of("x-ratelimit-remaining", "0"),
+        "/repos/owner/repo/commits/c1",
+        403,
+        "{\"message\":\"API rate limit exceeded\"}");
+    assertThrows(GitHubRateLimitReachedException.class, () -> adapter.repoChurn(REPO, SHA, 500));
   }
 
   @Test
@@ -224,19 +250,23 @@ class HttpGitHubApiAdapterTest {
         exchange -> {
           authorizationHeaders.add(exchange.getRequestHeaders().getFirst("Authorization"));
           headers.forEach((k, v) -> exchange.getResponseHeaders().add(k, v));
-          byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
-          exchange.sendResponseHeaders(status, bytes.length);
-          try (var os = exchange.getResponseBody()) {
-            os.write(bytes);
-          }
-          exchange.close();
+          respond(exchange, status, body);
         });
+  }
+
+  private static void respond(HttpExchange exchange, int status, String body) throws IOException {
+    byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+    exchange.sendResponseHeaders(status, bytes.length);
+    try (var os = exchange.getResponseBody()) {
+      os.write(bytes);
+    }
+    exchange.close();
   }
 
   private static String commitJson(String sha, String login, String date) {
     return "{\"sha\":\""
         + sha
-        + "\",\"author\":{\"login\":\""
+        + "\",\"parents\":[{\"sha\":\"p\"}],\"author\":{\"login\":\""
         + login
         + "\"},"
         + "\"commit\":{\"author\":{\"name\":\""
@@ -251,14 +281,19 @@ class HttpGitHubApiAdapterTest {
         + "\"}}}";
   }
 
-  private static String commitDetailJson(String path, int additions, int deletions) {
+  private static String patchDetailJson(String path, String patch) {
     return "{\"files\":[{\"filename\":\""
         + path
-        + "\",\"additions\":"
-        + additions
-        + ",\"deletions\":"
-        + deletions
-        + "}]}";
+        + "\",\"status\":\"modified\",\"patch\":\""
+        + patch
+        + "\"}]}";
+  }
+
+  private static String mergeJson(String sha) {
+    return "{\"sha\":\""
+        + sha
+        + "\",\"parents\":[{\"sha\":\"p1\"},{\"sha\":\"p2\"}],"
+        + "\"commit\":{\"author\":{\"name\":\"bob\",\"date\":\"2024-01-05T10:00:00Z\"}}}";
   }
 
   private static String commitsJson(int count, String login) {

@@ -18,6 +18,7 @@ import io.huocode.api.endpoint.rest.model.LimitationCode;
 import io.huocode.api.endpoint.rest.model.Quadrant;
 import io.huocode.api.model.AnalysisWindowData;
 import io.huocode.api.model.Churn;
+import io.huocode.api.model.RepoChurn;
 import io.huocode.api.model.RepoUrl;
 import io.huocode.api.port.GitHubApiPort;
 import io.huocode.api.retrieval.ApiDirectRetriever;
@@ -279,13 +280,8 @@ class RepoAggregatorTest {
     }
 
     @Override
-    public Churn churnForPath(RepoUrl repoUrl, String path, int maxCommits) {
-      return churns.get(path);
-    }
-
-    @Override
-    public AnalysisWindowData analysisWindow(RepoUrl repoUrl, int maxCommits) {
-      return WINDOW;
+    public RepoChurn repoChurn(RepoUrl repoUrl, String commitSha, int maxCommits) {
+      return new RepoChurn(churns, WINDOW);
     }
   }
 }
