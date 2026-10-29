@@ -22,6 +22,7 @@ import io.huocode.api.retrieval.RetrievalStrategySelector;
 import io.huocode.api.scoring.ScoreEngine;
 import io.huocode.api.utils.FilesUtils;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -30,7 +31,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Stream;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -176,9 +176,12 @@ public class RepoAggregator {
         || normalized.endsWith("IT.java");
   }
 
-  private static int linesOfCode(Path file) {
-    try (Stream<String> lines = Files.lines(file)) {
-      return (int) lines.filter(line -> !line.trim().isEmpty()).count();
+  static int linesOfCode(Path file) {
+    try {
+      // Decoding bytes replaces malformed input (e.g. a Latin-1 source) instead of throwing
+      // the UncheckedIOException that Files.lines raises mid-stream.
+      String content = new String(Files.readAllBytes(file), StandardCharsets.UTF_8);
+      return (int) content.lines().filter(line -> !line.isBlank()).count();
     } catch (IOException e) {
       return 0;
     }

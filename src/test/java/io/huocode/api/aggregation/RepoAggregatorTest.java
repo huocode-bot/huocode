@@ -235,6 +235,17 @@ class RepoAggregatorTest {
     return "class F" + id + " {\n  void m(int a) {\n" + body + "  }\n}\n";
   }
 
+  @Test
+  void linesOfCode_counts_non_utf8_sources_instead_of_failing() throws IOException {
+    Path latin1 = temp.resolve("Latin1.java");
+    java.nio.file.Files.write(
+        latin1,
+        "class Latin1 {\n\n  String s = \"\u00e9t\u00e9\";\n}\n"
+            .getBytes(java.nio.charset.StandardCharsets.ISO_8859_1));
+
+    assertEquals(3, RepoAggregator.linesOfCode(latin1));
+  }
+
   private static final class StubGitHubApiPort implements GitHubApiPort {
 
     private final long fileCount;
