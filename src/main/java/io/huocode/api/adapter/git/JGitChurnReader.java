@@ -10,6 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.diff.DiffFormatter;
 import org.eclipse.jgit.errors.MissingObjectException;
@@ -37,9 +38,14 @@ public class JGitChurnReader {
         RevWalk walk = new RevWalk(repo)) {
       walk.sort(RevSort.COMMIT_TIME_DESC);
       walk.markStart(walk.parseCommit(headOf(repo)));
+      Set<ObjectId> shallowBoundaries = repo.getObjectDatabase().getShallowCommits();
       int seen = 0;
       for (RevCommit commit : walk) {
-        if (commit.getParentCount() > 1) {
+        // A shallow-clone boundary looks parentless: diffing it against the empty tree would
+        // count every file of the repository as fully added, so it is left out of the window.
+        if (commit.getParentCount() > 1
+            || shallowBoundaries.contains(commit)
+            || hasUnavailableParent(walk, commit)) {
           continue;
         }
         if (seen >= window) {
@@ -116,17 +122,22 @@ public class JGitChurnReader {
     return !content.trim().isEmpty();
   }
 
-  private static ObjectId parentTreeOf(RevWalk walk, RevCommit commit) {
+  private static boolean hasUnavailableParent(RevWalk walk, RevCommit commit) throws IOException {
+    for (RevCommit parent : commit.getParents()) {
+      try {
+        walk.parseHeaders(parent);
+      } catch (MissingObjectException e) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static ObjectId parentTreeOf(RevWalk walk, RevCommit commit) throws IOException {
     if (commit.getParentCount() == 0) {
       return null;
     }
-    try {
-      return walk.parseCommit(commit.getParent(0)).getTree();
-    } catch (MissingObjectException e) {
-      return null;
-    } catch (IOException e) {
-      throw new GitCommandFailedException("log --numstat", e.getMessage());
-    }
+    return walk.parseCommit(commit.getParent(0)).getTree();
   }
 
   private static ObjectId headOf(Repository repo) throws IOException {

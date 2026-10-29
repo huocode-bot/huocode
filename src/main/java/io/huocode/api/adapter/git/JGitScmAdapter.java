@@ -115,7 +115,9 @@ public class JGitScmAdapter implements GitScmPort {
   }
 
   private int depthFor(String uri) {
-    return uri.startsWith("file:") ? 0 : properties.getCommitWindow();
+    // One extra generation so the oldest commit of the window still has its parent to diff
+    // against; the boundary commit itself is skipped by JGitChurnReader.
+    return uri.startsWith("file:") ? 0 : properties.getCommitWindow() + 1;
   }
 
   private static void ensureEmptyDirectory(Path targetDirectory) {
