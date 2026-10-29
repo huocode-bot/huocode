@@ -20,7 +20,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 /**
- * Score engine for scoring fiche v1.3 (docs/scoring-v1.3.md).
+ * Score engine for scoring fiche v1.4 (doc/scoring-v1.4.md).
  *
  * <p>Activity is the relative code churn of CodeScene-style engineering standards: the ratio
  * effectiveLines / linesOfCode. A file is "active" when it is a double guard:
@@ -43,7 +43,7 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class ScoreEngine {
 
-  public static final String SCORE_VERSION = "1.3";
+  public static final String SCORE_VERSION = "1.4";
 
   private static final int MIN_EFFECTIVE_LINES = 50;
   private static final double STDDEV_FACTOR = 2.0;

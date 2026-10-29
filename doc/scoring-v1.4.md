@@ -1,4 +1,4 @@
-# Scoring Fiche v1.3
+# Scoring Fiche v1.4
 
 ## Overview
 
@@ -49,13 +49,19 @@ A file must pass a **double guard** to be considered "active":
 | Volume | effectiveLines > 0 AND effectiveLines >= mean + 2 sigma |
 | Ratio  | effectiveLines >= 50 AND (effectiveLines / LOC) >= mean + 2 sigma |
 
-If active:
+If active, each guard contributes its own log-normalized penalty and the
+larger one is kept:
 
 ```
-an = min(1.0, log(1 + ratio) / log(1 + ratioMax))
+an = max( min(1.0, log(1 + ratio)          / log(1 + ratioMax)),
+          min(1.0, log(1 + effectiveLines) / log(1 + effectiveLinesMax)) )
 ```
 
 If not active: an = 0.0
+
+The volume term (new in v1.4) keeps a large file that is active by volume
+from being let off because a tiny file elsewhere has an extreme ratio and
+sets `ratioMax`.
 
 The log-normalization produces diminishing returns, preventing extreme
 churn from dominating the score. The double guard catches both:
@@ -68,20 +74,37 @@ churn from dominating the score. The double guard catches both:
 effectiveLines = linesAdded + linesDeleted
 ```
 
-- Merge commits are excluded
-- Bot commits (dependabot, renovate, github-actions) are filtered out
-- Blank lines are not counted (only meaningful content)
+- The window is the last 500 non-merge commits reachable from the analyzed
+  commit; merge commits are excluded
+- Bot commits (`[bot]` authors, dependabot, renovate) are filtered out
+- Blank and whitespace-only lines are not counted (only meaningful content)
+- Renames are followed: the history of a moved file stays attributed to its
+  current path, and a pure move counts 0 lines
+- A commit whose parent is unavailable (the boundary of a shallow clone) is
+  left out, since it cannot be diffed
+- Both retrieval strategies (`clone` and `api_direct`) apply exactly these
+  rules, so the same repository gets the same churn whichever is used. Through
+  the GitHub API, a file diff GitHub does not return (binary or very large)
+  falls back to GitHub's raw line counts
 - Default commit window: 500 commits
 
 The ratio `effectiveLines / linesOfCode` is the "Relative Code Churn"
 metric from CodeScene and Microsoft Research.
 
+## Statistical Population
+
+Test files are scored, but they never shape the statistics production code
+is judged against. The mean, standard deviation and maxima used above, and
+the percentiles below, are computed over analyzed **non-test** files (all
+analyzed files only when the repository has no non-test file). Test files are
+then placed within that same distribution.
+
 ## Percentile Computation
 
-Percentiles use a CDF (Cumulative Distribution Function):
-- Files sorted by metric value
+Percentiles use a CDF (Cumulative Distribution Function) over the statistical
+population:
+- percentile = round(100 * (population files with a value <= this value) / populationSize)
 - Tied values receive the same percentile
-- percentile = round(100 * upperBoundIndex / totalFiles)
 
 ## Repository Health Score
 
@@ -93,7 +116,8 @@ Test files are excluded from the average. A file is a test when it is
 outside `src/main` and either sits under a `test`, `tests`, `testFixtures`
 or `integrationTest` directory, or ends with `Test.java`, `Tests.java`,
 `TestCase.java`, `IT.java` or `ITCase.java`. The LoC-weighted average ensures larger files
-carry proportionally more weight.
+carry proportionally more weight. The quadrant summary and the top 5 also
+cover non-test files only.
 
 ## Quadrant Classification
 
@@ -110,7 +134,7 @@ All values are configurable via environment variables (overridable from the Poja
 
 | Env Var | Default | Description |
 |---------|---------|-------------|
-| `huocode.commit-window` | 500 | Commits analyzed for churn (also sets clone depth) |
+| `huocode.commit-window` | 500 | Commits analyzed for churn (clone depth is this + 1) |
 | `huocode.min-files-for-relative-scoring` | 15 | Below this many analyzable files, relative scoring is disabled |
 | `huocode.exceeds-common-complexity-threshold` | 10 | McCabe > 10 rule of thumb for the complexity flag |
 | `huocode.max-file-size-bytes` | 1048576 (1 MiB) | Files above this size are marked FILE_TOO_LARGE |

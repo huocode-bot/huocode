@@ -62,7 +62,7 @@ class ScoreEngineTest {
     assertEquals(20, score.scoresByPath().size());
     assertEquals(0, score.unanalyzedCount());
 
-    // Predictable with the v1.3 formula: activity is the double guard
+    // Predictable with the v1.4 formula: activity is the double guard
     // (r >= mean + 2 sigma & effective lines >= 50) OR effective lines >= mean + 2 sigma.
     // complexity is the worst-method value (40 here) — a single god-method is flagged,
     // whatever the (simulated) number of small methods around it.
