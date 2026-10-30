@@ -79,7 +79,8 @@ effectiveLines = linesAdded + linesDeleted
 - Bot commits (`[bot]` authors, dependabot, renovate) are filtered out
 - Blank and whitespace-only lines are not counted (only meaningful content)
 - Renames are followed: the history of a moved file stays attributed to its
-  current path, and a pure move counts 0 lines
+  current path, and a pure move counts 0 lines. Commits are ordered by
+  ancestry, not by date, before renames are applied
 - A commit whose parent is unavailable (the boundary of a shallow clone) is
   left out, since it cannot be diffed
 - Both retrieval strategies (`clone` and `api_direct`) apply exactly these

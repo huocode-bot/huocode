@@ -101,8 +101,8 @@ public final class ChurnParser {
   }
 
   /**
-   * Aggregates churn per path. A rename attributes the history of the previous path, in the commits
-   * it descends from, to the path the file has today.
+   * Aggregates churn per path. A rename attributes the earlier history of the previous path to the
+   * path the file has today.
    */
   public static RepoChurn aggregate(List<CommitChurn> commits) {
     Map<String, Integer> commitsByPath = new HashMap<>();
@@ -139,7 +139,10 @@ public final class ChurnParser {
           deletedByPath.merge(path, change.deleted(), Integer::sum);
         }
       }
-      // Registered after the commit itself: only its ancestors see the previous path.
+      // Registered after the commit itself, so it applies to the commits ordered after it: its
+      // ancestors, and also parallel-branch commits. Edits to the previous path on a parallel
+      // branch were merged into the renamed file, so they usually belong to it too; an unrelated
+      // file recreated under the previous path on such a branch would be misattributed.
       currentPathOf.putAll(renames);
     }
     return new RepoChurn(
