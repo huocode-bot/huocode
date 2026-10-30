@@ -32,6 +32,8 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class JGitScmAdapter implements GitScmPort {
 
+  private static final int MAX_RECLONES = 2;
+
   private final AnalysisProperties properties;
 
   @Override
@@ -67,16 +69,18 @@ public class JGitScmAdapter implements GitScmPort {
   /**
    * Merge commits use up clone depth without counting in the window, so a clone whose window comes
    * out short is redone twice as deep, until it holds commitWindow non-merge commits or the whole
-   * history, like the window the GitHub API path reads. JGit cannot deepen a shallow clone that
-   * contains merges (it drops the shallow markers without fetching the missing commits), hence a
-   * fresh clone rather than a deepening fetch.
+   * history, like the window the GitHub API path reads. Re-clones are capped so a merge-heavy giant
+   * cannot exhaust the git timeout: past the cap the window stays short, and commitsAnalyzed in the
+   * result says so. JGit cannot deepen a shallow clone that contains merges (it drops the shallow
+   * markers without fetching the missing commits), hence a fresh clone rather than a deepening
+   * fetch.
    */
   private void cloneWindow(RepoUrl repoUrl, Path targetDirectory) {
     JGitChurnReader reader = new JGitChurnReader(properties.getCommitWindow());
     int depth = properties.getCommitWindow() + 1;
     cloneInto(repoUrl, targetDirectory, depth);
     JGitChurnReader.Window window = reader.scan(targetDirectory);
-    while (window.truncated()) {
+    for (int reclones = 0; window.truncated() && reclones < MAX_RECLONES; reclones++) {
       int commitsSeen = window.commits().size();
       depth *= 2;
       deleteClone(targetDirectory);
