@@ -27,21 +27,23 @@ public final class CommitReader {
 
   private CommitReader() {}
 
-  public static List<JsonNode> fetchNonMergeCommits(
+  /**
+   * Commits from commitSha until maxCommits non-merge commits are collected. The merges met on the
+   * way are kept too, for ancestry only.
+   */
+  public static List<JsonNode> fetchWindow(
       GitHubApiHttp http, RepoUrl repoUrl, String commitSha, int maxCommits) {
     List<JsonNode> commits = new ArrayList<>();
+    int nonMerges = 0;
     int page = 1;
-    while (commits.size() < maxCommits) {
+    while (nonMerges < maxCommits) {
       JsonNode items = http.getJson(repoUrl, commitsUrl(http, repoUrl, commitSha, page));
       if (items.isEmpty()) {
         break;
       }
       for (JsonNode item : items) {
-        if (item.path("parents").size() > 1) {
-          continue;
-        }
         commits.add(item);
-        if (commits.size() >= maxCommits) {
+        if (!isMerge(item) && ++nonMerges >= maxCommits) {
           break;
         }
       }
@@ -53,10 +55,19 @@ public final class CommitReader {
     return commits;
   }
 
+  public static boolean isMerge(JsonNode item) {
+    return item.path("parents").size() > 1;
+  }
+
+  /** The commit and its diff; a merge is returned without its diff, which is never fetched. */
   public static CommitChurn commitChurn(GitHubApiHttp http, RepoUrl repoUrl, JsonNode item) {
     String sha = item.path("sha").asText();
+    List<String> parentIds = new ArrayList<>();
+    for (JsonNode parent : item.path("parents")) {
+      parentIds.add(parent.path("sha").asText());
+    }
     List<PathChange> changes = new ArrayList<>();
-    for (int page = 1; page <= MAX_FILE_PAGES; page++) {
+    for (int page = 1; !isMerge(item) && page <= MAX_FILE_PAGES; page++) {
       JsonNode files =
           http.getJson(
                   repoUrl,
@@ -75,7 +86,7 @@ public final class CommitReader {
         break;
       }
     }
-    return new CommitChurn(authorOf(item), dateOf(item), changes);
+    return new CommitChurn(sha, parentIds, authorOf(item), dateOf(item), changes);
   }
 
   private static PathChange pathChange(JsonNode file) {

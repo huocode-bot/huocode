@@ -14,6 +14,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.PriorityQueue;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -63,8 +64,8 @@ public final class ChurnParser {
   }
 
   /**
-   * Aggregates churn per path. Commits must be ordered newest first: a rename then attributes the
-   * older history of the previous path to the path the file has today.
+   * Aggregates churn per path. A rename attributes the history of the previous path, in the commits
+   * it descends from, to the path the file has today.
    */
   public static RepoChurn aggregate(List<CommitChurn> commits) {
     Map<String, Integer> commitsByPath = new HashMap<>();
@@ -76,7 +77,10 @@ public final class ChurnParser {
     Map<String, String> currentPathOf = new HashMap<>();
     int commitsAnalyzed = 0;
 
-    for (CommitChurn commit : commits) {
+    for (CommitChurn commit : childrenFirst(commits)) {
+      if (commit.isMerge()) {
+        continue;
+      }
       Map<String, String> renames = new HashMap<>();
       for (PathChange change : commit.changes()) {
         String path = currentPathOf.getOrDefault(change.path(), change.path());
@@ -98,7 +102,7 @@ public final class ChurnParser {
           deletedByPath.merge(path, change.deleted(), Integer::sum);
         }
       }
-      // Registered after the commit itself: only older commits see the previous path.
+      // Registered after the commit itself: only its ancestors see the previous path.
       currentPathOf.putAll(renames);
     }
     return new RepoChurn(
@@ -106,7 +110,61 @@ public final class ChurnParser {
         window(commitsAnalyzed, dates, distinctAuthors));
   }
 
-  public record CommitChurn(String author, Instant date, List<PathChange> changes) {}
+  /**
+   * One commit of the window. id and parentIds order the commits by ancestry; a merge commit
+   * (several parents) only carries ancestry: it is neither counted nor diffed.
+   */
+  public record CommitChurn(
+      String id, List<String> parentIds, String author, Instant date, List<PathChange> changes) {
+
+    public CommitChurn(String author, Instant date, List<PathChange> changes) {
+      this(null, List.of(), author, date, changes);
+    }
+
+    public boolean isMerge() {
+      return parentIds.size() > 1;
+    }
+  }
+
+  /**
+   * Orders commits so that every commit comes before its parents, whatever their timestamps (a
+   * rebase or a skewed clock can date a parent after its child). Ties keep the input order.
+   */
+  static List<CommitChurn> childrenFirst(List<CommitChurn> commits) {
+    Map<String, Integer> indexById = new HashMap<>();
+    for (int i = 0; i < commits.size(); i++) {
+      if (commits.get(i).id() != null) {
+        indexById.put(commits.get(i).id(), i);
+      }
+    }
+    int[] pendingChildren = new int[commits.size()];
+    for (CommitChurn commit : commits) {
+      for (String parent : commit.parentIds()) {
+        Integer parentIndex = indexById.get(parent);
+        if (parentIndex != null) {
+          pendingChildren[parentIndex]++;
+        }
+      }
+    }
+    PriorityQueue<Integer> ready = new PriorityQueue<>();
+    for (int i = 0; i < commits.size(); i++) {
+      if (pendingChildren[i] == 0) {
+        ready.add(i);
+      }
+    }
+    List<CommitChurn> ordered = new ArrayList<>(commits.size());
+    while (!ready.isEmpty()) {
+      CommitChurn commit = commits.get(ready.poll());
+      ordered.add(commit);
+      for (String parent : commit.parentIds()) {
+        Integer parentIndex = indexById.get(parent);
+        if (parentIndex != null && --pendingChildren[parentIndex] == 0) {
+          ready.add(parentIndex);
+        }
+      }
+    }
+    return ordered;
+  }
 
   public static RepoChurn parse(String logOutput) {
     List<CommitChurn> commits = new ArrayList<>();

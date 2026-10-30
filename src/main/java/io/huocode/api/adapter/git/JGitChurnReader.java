@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import org.eclipse.jgit.diff.DiffEntry;
@@ -43,27 +44,35 @@ public class JGitChurnReader {
       Set<ObjectId> shallowBoundaries = repo.getObjectDatabase().getShallowCommits();
       int seen = 0;
       for (RevCommit commit : walk) {
+        if (commit.getParentCount() > 1) {
+          // Kept for ancestry only: ChurnParser neither counts nor diffs merges.
+          commits.add(commitChurn(commit, List.of()));
+          continue;
+        }
         // A shallow-clone boundary looks parentless: diffing it against the empty tree would
         // count every file of the repository as fully added, so it is left out of the window.
-        if (commit.getParentCount() > 1
-            || shallowBoundaries.contains(commit)
-            || hasUnavailableParent(walk, commit)) {
+        if (shallowBoundaries.contains(commit) || hasUnavailableParent(walk, commit)) {
           continue;
         }
         if (seen >= window) {
           break;
         }
         seen++;
-        commits.add(
-            new CommitChurn(
-                commit.getAuthorIdent().getName(),
-                commit.getAuthorIdent().getWhen().toInstant(),
-                pathChanges(repo, walk, commit)));
+        commits.add(commitChurn(commit, pathChanges(repo, walk, commit)));
       }
       return commits;
     } catch (IOException e) {
       throw new GitCommandFailedException("log --numstat", e.getMessage());
     }
+  }
+
+  private static CommitChurn commitChurn(RevCommit commit, List<PathChange> changes) {
+    return new CommitChurn(
+        commit.name(),
+        Arrays.stream(commit.getParents()).map(RevCommit::name).toList(),
+        commit.getAuthorIdent().getName(),
+        commit.getAuthorIdent().getWhen().toInstant(),
+        changes);
   }
 
   private static List<PathChange> pathChanges(Repository repo, RevWalk walk, RevCommit commit)
