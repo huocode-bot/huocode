@@ -35,8 +35,24 @@ public class JGitChurnReader {
     this.window = window;
   }
 
-  public List<CommitChurn> read(Path repository) {
+  /**
+   * The commits read. truncated means fewer than the window size were found because the walk hit
+   * the boundary of a shallow clone, not the start of history: a deeper clone would find more.
+   */
+  public record Window(List<CommitChurn> commits, boolean truncated) {}
+
+  public Window read(Path repository) {
+    return walk(repository, true);
+  }
+
+  /** The same walk as read, without computing diffs: commits come without path changes. */
+  public Window scan(Path repository) {
+    return walk(repository, false);
+  }
+
+  private Window walk(Path repository, boolean withChanges) {
     List<CommitChurn> commits = new ArrayList<>();
+    boolean reachedShallowBoundary = false;
     try (Repository repo = open(repository);
         RevWalk walk = new RevWalk(repo)) {
       walk.sort(RevSort.COMMIT_TIME_DESC);
@@ -52,15 +68,16 @@ public class JGitChurnReader {
         // A shallow-clone boundary looks parentless: diffing it against the empty tree would
         // count every file of the repository as fully added, so it is left out of the window.
         if (shallowBoundaries.contains(commit) || hasUnavailableParent(walk, commit)) {
+          reachedShallowBoundary = true;
           continue;
         }
         if (seen >= window) {
           break;
         }
         seen++;
-        commits.add(commitChurn(commit, pathChanges(repo, walk, commit)));
+        commits.add(commitChurn(commit, withChanges ? pathChanges(repo, walk, commit) : List.of()));
       }
-      return commits;
+      return new Window(commits, seen < window && reachedShallowBoundary);
     } catch (IOException e) {
       throw new GitCommandFailedException("log --numstat", e.getMessage());
     }

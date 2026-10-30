@@ -135,7 +135,7 @@ All values are configurable via environment variables (overridable from the Poja
 
 | Env Var | Default | Description |
 |---------|---------|-------------|
-| `huocode.commit-window` | 500 | Commits analyzed for churn (clone depth is this + 1) |
+| `huocode.commit-window` | 500 | Non-merge commits analyzed for churn (the clone starts at this depth + 1 and is redone deeper when merges leave the window short) |
 | `huocode.min-files-for-relative-scoring` | 15 | Below this many analyzable files, relative scoring is disabled |
 | `huocode.exceeds-common-complexity-threshold` | 10 | McCabe > 10 rule of thumb for the complexity flag |
 | `huocode.max-file-size-bytes` | 1048576 (1 MiB) | Files above this size are marked FILE_TOO_LARGE |

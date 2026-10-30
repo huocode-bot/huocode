@@ -1,6 +1,8 @@
 package io.huocode.api.adapter.git;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.huocode.api.TestGitRepos;
 import io.huocode.api.model.Churn;
@@ -30,7 +32,7 @@ class JGitChurnReaderTest {
     TestGitRepos.run(
         temp, "clone", "-q", "--depth", "2", source.toUri().toString(), shallow.toString());
 
-    RepoChurn churn = ChurnParser.aggregate(new JGitChurnReader(500).read(shallow));
+    RepoChurn churn = ChurnParser.aggregate(new JGitChurnReader(500).read(shallow).commits());
 
     // "second" is the boundary of the depth-2 clone: its parent is missing, so it cannot be
     // diffed and must not be counted as adding the whole file.
@@ -51,10 +53,36 @@ class JGitChurnReaderTest {
     TestGitRepos.run(repo, "mv", "old/A.java", "src/A.java");
     TestGitRepos.commit(repo, "move");
 
-    RepoChurn churn = ChurnParser.aggregate(new JGitChurnReader(500).read(repo));
+    RepoChurn churn = ChurnParser.aggregate(new JGitChurnReader(500).read(repo).commits());
 
     // create: +42, edit: +1/-1, pure move: 0 — all attributed to the current path.
     assertEquals(new Churn(3, 1, 43, 1), churn.churnByPath().get("src/A.java"));
     assertEquals(null, churn.churnByPath().get("old/A.java"));
+  }
+
+  @Test
+  void scan_reports_a_window_cut_short_by_the_shallow_boundary() throws IOException {
+    Path source = temp.resolve("source");
+    TestGitRepos.init(source);
+    TestGitRepos.run(source, "checkout", "-q", "-b", "main");
+    TestGitRepos.write(source, "Base.java", "class Base {}\n");
+    TestGitRepos.commit(source, "base");
+    for (int i = 1; i <= 4; i++) {
+      TestGitRepos.run(source, "checkout", "-q", "-b", "feature" + i);
+      TestGitRepos.write(source, "F" + i + ".java", "class F" + i + " {}\n");
+      TestGitRepos.commit(source, "feature " + i);
+      TestGitRepos.run(source, "checkout", "-q", "main");
+      TestGitRepos.run(source, "merge", "-q", "--no-ff", "-m", "merge " + i, "feature" + i);
+    }
+    Path shallow = temp.resolve("shallow");
+    TestGitRepos.run(
+        temp, "clone", "-q", "--depth", "4", source.toUri().toString(), shallow.toString());
+
+    // Depth 4 stops at merge 1 and feature 2: only features 4 and 3 can be diffed.
+    JGitChurnReader.Window window = new JGitChurnReader(3).scan(shallow);
+
+    assertTrue(window.truncated());
+    assertEquals(2, window.commits().stream().filter(commit -> !commit.isMerge()).count());
+    assertFalse(new JGitChurnReader(2).scan(shallow).truncated());
   }
 }
