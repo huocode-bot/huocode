@@ -256,12 +256,47 @@ class HttpGitHubApiAdapterTest {
         403,
         "{\"message\":\"API rate limit exceeded for 1.2.3.4\"}");
     assertThrows(GitHubRateLimitReachedException.class, () -> adapter.defaultBranch(REPO));
+    // The hourly quota is not retried: it only resets at its window.
+    assertEquals(1, authorizationHeaders.size());
   }
 
   @Test
-  void throws_illegal_state_on_5xx() {
-    stub("/repos/owner/repo", 500, "{}");
+  void throws_illegal_state_on_5xx_after_three_attempts() {
+    stub(Map.of("retry-after", "0"), "/repos/owner/repo", 500, "{}");
     assertThrows(IllegalStateException.class, () -> adapter.defaultBranch(REPO));
+    assertEquals(3, authorizationHeaders.size());
+  }
+
+  @Test
+  void retries_a_transient_server_error_until_it_passes() {
+    List<Integer> statuses = new ArrayList<>(List.of(502, 502, 200));
+    server.createContext(
+        "/repos/owner/repo",
+        exchange -> {
+          exchange.getResponseHeaders().add("retry-after", "0");
+          respond(exchange, statuses.remove(0), "{\"default_branch\":\"main\"}");
+        });
+    assertEquals("main", adapter.defaultBranch(REPO));
+    assertTrue(statuses.isEmpty());
+  }
+
+  @Test
+  void retries_the_secondary_rate_limit_but_not_the_primary_one() {
+    List<Integer> statuses = new ArrayList<>(List.of(403, 200));
+    server.createContext(
+        "/repos/owner/repo",
+        exchange -> {
+          exchange.getResponseHeaders().add("retry-after", "0");
+          int status = statuses.remove(0);
+          respond(
+              exchange,
+              status,
+              status == 403
+                  ? "{\"message\":\"You have exceeded a secondary rate limit\"}"
+                  : "{\"default_branch\":\"main\"}");
+        });
+    assertEquals("main", adapter.defaultBranch(REPO));
+    assertTrue(statuses.isEmpty());
   }
 
   private void stub(String path, int status, String body) {
