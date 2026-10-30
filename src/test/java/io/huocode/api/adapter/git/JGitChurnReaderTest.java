@@ -106,4 +106,29 @@ class JGitChurnReaderTest {
     // a2, d, e added (the blank line is not counted); a, b deleted.
     assertEquals(new ChurnParser.LineCounts(3, 2), api);
   }
+
+  @Test
+  void read_follows_a_rename_with_edits_at_gits_50_percent_similarity() throws IOException {
+    Path repo = temp.resolve("repo");
+    TestGitRepos.init(repo);
+    StringBuilder before = new StringBuilder();
+    StringBuilder after = new StringBuilder();
+    for (int i = 0; i < 20; i++) {
+      before.append("  int field").append(i).append(" = ").append(i).append(";\n");
+      // 11 of 20 lines kept: about 55% similar, a rename for git (50) but not for JGit's 60.
+      after.append(
+          i < 11 ? "  int field" + i + " = " + i + ";\n" : "  long other" + i + " = " + i + ";\n");
+    }
+    TestGitRepos.write(repo, "old/A.java", before.toString());
+    TestGitRepos.commit(repo, "create");
+    Files.createDirectories(repo.resolve("src"));
+    TestGitRepos.run(repo, "mv", "old/A.java", "src/A.java");
+    TestGitRepos.write(repo, "src/A.java", after.toString());
+    TestGitRepos.commit(repo, "move and edit");
+
+    RepoChurn churn = ChurnParser.aggregate(new JGitChurnReader(500).read(repo).commits());
+
+    // create: +20; move and edit: +9 / -9 as a rename, not +20 as a new file.
+    assertEquals(new Churn(2, 1, 29, 9), churn.churnByPath().get("src/A.java"));
+  }
 }

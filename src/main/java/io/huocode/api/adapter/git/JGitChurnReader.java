@@ -29,6 +29,10 @@ import org.eclipse.jgit.treewalk.EmptyTreeIterator;
 
 public class JGitChurnReader {
 
+  // git's default similarity for a rename (-M50%), which GitHub's API also applies; JGit's own
+  // default (60) would split renames GitHub follows into a delete plus an add.
+  private static final int GIT_RENAME_SCORE = 50;
+
   private final int window;
 
   public JGitChurnReader(int window) {
@@ -104,6 +108,7 @@ public class JGitChurnReader {
         formatter.setRepository(repo);
         formatter.setContext(0);
         formatter.setDetectRenames(true);
+        formatter.getRenameDetector().setRenameScore(GIT_RENAME_SCORE);
         if (parentTree == null) {
           entries = formatter.scan(new EmptyTreeIterator(), newTree);
         } else {
