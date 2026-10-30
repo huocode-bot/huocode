@@ -5,6 +5,7 @@ import static io.huocode.api.utils.ChurnParser.countPatchLines;
 import static io.huocode.api.utils.ChurnParser.isBot;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import io.huocode.api.exception.GitHubRateLimitReachedException;
 import io.huocode.api.model.RepoUrl;
 import io.huocode.api.utils.ChurnParser.CommitChurn;
 import io.huocode.api.utils.ChurnParser.LineCounts;
@@ -14,6 +15,7 @@ import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Reads the commit window through the GitHub API with the same semantics as the clone path
@@ -25,6 +27,8 @@ public final class CommitReader {
   private static final int PAGE_SIZE = 100;
   // GitHub serves at most 3000 files per commit, 100 per page.
   private static final int MAX_FILE_PAGES = 30;
+  // Each omitted patch costs up to two content requests: bounded per commit.
+  private static final int MAX_CONTENT_DIFFS_PER_COMMIT = 20;
 
   private CommitReader() {}
 
@@ -68,6 +72,7 @@ public final class CommitReader {
       parentIds.add(parent.path("sha").asText());
     }
     List<PathChange> changes = new ArrayList<>();
+    AtomicInteger contentDiffBudget = new AtomicInteger(MAX_CONTENT_DIFFS_PER_COMMIT);
     for (int page = 1; !isMerge(item) && page <= MAX_FILE_PAGES; page++) {
       JsonNode files =
           http.getJson(
@@ -82,7 +87,7 @@ public final class CommitReader {
               .path("files");
       String parentSha = parentIds.isEmpty() ? null : parentIds.get(0);
       for (JsonNode file : files) {
-        changes.add(pathChange(http, repoUrl, sha, parentSha, file));
+        changes.add(pathChange(http, repoUrl, sha, parentSha, file, contentDiffBudget));
       }
       if (files.size() < PAGE_SIZE) {
         break;
@@ -92,7 +97,12 @@ public final class CommitReader {
   }
 
   private static PathChange pathChange(
-      GitHubApiHttp http, RepoUrl repoUrl, String sha, String parentSha, JsonNode file) {
+      GitHubApiHttp http,
+      RepoUrl repoUrl,
+      String sha,
+      String parentSha,
+      JsonNode file,
+      AtomicInteger contentDiffBudget) {
     String path = file.path("filename").asText();
     String status = file.path("status").asText();
     String previousPath =
@@ -102,17 +112,46 @@ public final class CommitReader {
       lines = countPatchLines(file.get("patch").asText());
     } else if (file.path("additions").asInt(0) + file.path("deletions").asInt(0) == 0) {
       lines = new LineCounts(0, 0); // binary file or pure rename: no line changed
-    } else {
+    } else if (contentDiffBudget.getAndDecrement() > 0) {
       // GitHub omits the patch of very large diffs; its raw counts would include blank lines, so
       // both versions are diffed here, the way the clone path does.
+      lines = diffContents(http, repoUrl, sha, parentSha, status, path, previousPath, file);
+    } else {
+      lines = rawCounts(file); // budget spent: keep the request count of one commit bounded
+    }
+    return new PathChange(path, previousPath, lines.added(), lines.deleted());
+  }
+
+  private static LineCounts diffContents(
+      GitHubApiHttp http,
+      RepoUrl repoUrl,
+      String sha,
+      String parentSha,
+      String status,
+      String path,
+      String previousPath,
+      JsonNode file) {
+    try {
+      // A copy counts as an added file, as the clone path (rename detection only) sees it.
+      boolean added = "added".equals(status) || "copied".equals(status) || parentSha == null;
       String before =
-          "added".equals(status) || parentSha == null
+          added
               ? ""
               : content(http, repoUrl, previousPath != null ? previousPath : path, parentSha);
       String after = "removed".equals(status) ? "" : content(http, repoUrl, path, sha);
-      lines = countChangedLines(before, after);
+      return countChangedLines(before, after);
+    } catch (GitHubRateLimitReachedException e) {
+      throw e;
+    } catch (RuntimeException e) {
+      // A version GitHub will not serve (too large, missing at the parent): its raw counts are
+      // the best figure left, rather than failing the whole analysis on one file.
+      return rawCounts(file);
     }
-    return new PathChange(path, previousPath, lines.added(), lines.deleted());
+  }
+
+  private static LineCounts rawCounts(JsonNode file) {
+    return new LineCounts(
+        Math.max(0, file.path("additions").asInt(0)), Math.max(0, file.path("deletions").asInt(0)));
   }
 
   private static String content(GitHubApiHttp http, RepoUrl repoUrl, String path, String sha) {

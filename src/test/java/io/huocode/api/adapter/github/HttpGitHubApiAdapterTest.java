@@ -236,6 +236,25 @@ class HttpGitHubApiAdapterTest {
   }
 
   @Test
+  void repoChurn_falls_back_to_raw_counts_when_a_file_version_cannot_be_fetched() {
+    stub(
+        "/repos/owner/repo/commits",
+        200,
+        "[" + commitJson("c1", "octocat", "2024-01-01T10:00:00Z") + "]");
+    stub(
+        "/repos/owner/repo/commits/c1",
+        200,
+        "{\"files\":[{\"filename\":\"data/Huge.java\",\"status\":\"modified\","
+            + "\"additions\":7,\"deletions\":2}]}");
+    // GitHub refuses the blob (missing at the parent, or too large).
+    stub("/repos/owner/repo/contents/data/Huge.java", 404, "{\"message\":\"Not Found\"}");
+
+    RepoChurn churn = adapter.repoChurn(REPO, SHA, 500);
+
+    assertEquals(new Churn(1, 1, 7, 2), churn.churnByPath().get("data/Huge.java"));
+  }
+
+  @Test
   void sends_bearer_token_header() {
     stub("/repos/owner/repo", 200, "{\"default_branch\":\"main\"}");
     adapter.defaultBranch(REPO);
