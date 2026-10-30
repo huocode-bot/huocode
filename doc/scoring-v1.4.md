@@ -79,13 +79,14 @@ effectiveLines = linesAdded + linesDeleted
 - Bot commits (`[bot]` authors, dependabot, renovate) are filtered out
 - Blank and whitespace-only lines are not counted (only meaningful content)
 - Renames are followed: the history of a moved file stays attributed to its
-  current path, and a pure move counts 0 lines
+  current path, and a pure move counts 0 lines. Commits are ordered by
+  ancestry, not by date, before renames are applied
 - A commit whose parent is unavailable (the boundary of a shallow clone) is
   left out, since it cannot be diffed
 - Both retrieval strategies (`clone` and `api_direct`) apply exactly these
-  rules, so the same repository gets the same churn whichever is used. Through
-  the GitHub API, a file diff GitHub does not return (binary or very large)
-  falls back to GitHub's raw line counts
+  rules, so the same repository gets the same churn whichever is used. When
+  GitHub leaves out the diff of a very large file change, both versions of the
+  file are fetched and diffed the way the clone path diffs them
 - Default commit window: 500 commits
 
 The ratio `effectiveLines / linesOfCode` is the "Relative Code Churn"
@@ -117,7 +118,8 @@ outside `src/main` and either sits under a `test`, `tests`, `testFixtures`
 or `integrationTest` directory, or ends with `Test.java`, `Tests.java`,
 `TestCase.java`, `IT.java` or `ITCase.java`. The LoC-weighted average ensures larger files
 carry proportionally more weight. The quadrant summary and the top 5 also
-cover non-test files only.
+cover the statistical population: non-test files, or every analyzed file when
+the repository has no non-test file.
 
 ## Quadrant Classification
 
@@ -134,7 +136,7 @@ All values are configurable via environment variables (overridable from the Poja
 
 | Env Var | Default | Description |
 |---------|---------|-------------|
-| `huocode.commit-window` | 500 | Commits analyzed for churn (clone depth is this + 1) |
+| `huocode.commit-window` | 500 | Non-merge commits analyzed for churn (the clone starts at this depth + 1 and is redone deeper when merges leave the window short) |
 | `huocode.min-files-for-relative-scoring` | 15 | Below this many analyzable files, relative scoring is disabled |
 | `huocode.exceeds-common-complexity-threshold` | 10 | McCabe > 10 rule of thumb for the complexity flag |
 | `huocode.max-file-size-bytes` | 1048576 (1 MiB) | Files above this size are marked FILE_TOO_LARGE |

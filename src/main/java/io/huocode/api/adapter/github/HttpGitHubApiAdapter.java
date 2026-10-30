@@ -1,7 +1,7 @@
 package io.huocode.api.adapter.github;
 
 import static io.huocode.api.adapter.github.CommitReader.commitChurn;
-import static io.huocode.api.adapter.github.CommitReader.fetchNonMergeCommits;
+import static io.huocode.api.adapter.github.CommitReader.fetchWindow;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import io.huocode.api.exception.RepoNotFoundException;
@@ -89,7 +89,7 @@ public class HttpGitHubApiAdapter implements GitHubApiPort {
 
   @Override
   public RepoChurn repoChurn(RepoUrl repoUrl, String commitSha, int maxCommits) {
-    List<JsonNode> commits = fetchNonMergeCommits(http, repoUrl, commitSha, maxCommits);
+    List<JsonNode> commits = fetchWindow(http, repoUrl, commitSha, maxCommits);
     int threads = Math.max(1, Math.min(MAX_CONCURRENT_FETCHES, commits.size()));
     ExecutorService executor = Executors.newFixedThreadPool(threads);
     try {
@@ -102,11 +102,11 @@ public class HttpGitHubApiAdapter implements GitHubApiPort {
                       CompletableFuture.supplyAsync(
                           () -> commitChurn(http, repoUrl, item), executor))
               .toList();
-      List<CommitChurn> newestFirst = new ArrayList<>(details.size());
+      List<CommitChurn> windowCommits = new ArrayList<>(details.size());
       for (CompletableFuture<CommitChurn> detail : details) {
-        newestFirst.add(join(detail));
+        windowCommits.add(join(detail));
       }
-      return ChurnParser.aggregate(newestFirst);
+      return ChurnParser.aggregate(windowCommits);
     } finally {
       executor.shutdownNow();
     }

@@ -101,4 +101,46 @@ class JGitScmAdapterTest {
     assertEquals(1, churn.window().commitsAnalyzed());
     assertEquals(1, churn.churnByPath().get("A.java").commits());
   }
+
+  @Test
+  void clone_is_redone_deeper_when_merges_shorten_the_commit_window() throws IOException {
+    Path source = temp.resolve("source");
+    TestGitRepos.init(source);
+    TestGitRepos.run(source, "checkout", "-q", "-b", "main");
+    TestGitRepos.write(source, "Base.java", "class Base {}\n");
+    TestGitRepos.commit(source, "base");
+    // Every commit of main is a merge of a one-commit feature branch, deleted once merged.
+    for (int i = 1; i <= 4; i++) {
+      TestGitRepos.run(source, "checkout", "-q", "-b", "feature" + i);
+      TestGitRepos.write(source, "F" + i + ".java", "class F" + i + " {}\n");
+      TestGitRepos.commit(source, "feature " + i);
+      TestGitRepos.run(source, "checkout", "-q", "main");
+      TestGitRepos.run(source, "merge", "-q", "--no-ff", "-m", "merge " + i, "feature" + i);
+      TestGitRepos.run(source, "branch", "-q", "-d", "feature" + i);
+    }
+    AnalysisProperties windowOfThree =
+        new AnalysisProperties(
+            "",
+            Duration.ofSeconds(5),
+            300,
+            20000,
+            15,
+            3,
+            10,
+            Duration.ofSeconds(10),
+            1048576,
+            Duration.ofHours(48),
+            60,
+            Duration.ofMinutes(15),
+            10,
+            60,
+            2,
+            10);
+    FileUrlScmAdapter adapter = new FileUrlScmAdapter(windowOfThree, source);
+    Path cloneDir = adapter.clone(new RepoUrl("owner", "repo"), temp.resolve("target/clone"));
+
+    // A depth-4 clone (window + 1) stops at merge 1 and feature 2: only features 4 and 3 could
+    // be diffed. The clone is redone deeper, so the window holds 3 commits.
+    assertEquals(3, adapter.logNumstat(cloneDir).window().commitsAnalyzed());
+  }
 }

@@ -9,6 +9,7 @@ import io.huocode.api.model.RepoChurn;
 import io.huocode.api.model.RepoUrl;
 import io.huocode.api.port.GitScmPort;
 import io.huocode.api.utils.ChurnParser;
+import io.huocode.api.utils.FilesUtils;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -31,12 +32,14 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class JGitScmAdapter implements GitScmPort {
 
+  private static final int MAX_RECLONES = 2;
+
   private final AnalysisProperties properties;
 
   @Override
   public Path clone(RepoUrl repoUrl, Path targetDirectory) {
     ensureEmptyDirectory(targetDirectory);
-    run(timeout(), () -> cloneInto(repoUrl, targetDirectory));
+    run(timeout(), () -> cloneWindow(repoUrl, targetDirectory));
     return targetDirectory;
   }
 
@@ -51,7 +54,7 @@ public class JGitScmAdapter implements GitScmPort {
         timeout(),
         () ->
             ChurnParser.aggregate(
-                new JGitChurnReader(properties.getCommitWindow()).read(repository)));
+                new JGitChurnReader(properties.getCommitWindow()).read(repository).commits()));
   }
 
   @Override
@@ -63,7 +66,41 @@ public class JGitScmAdapter implements GitScmPort {
     return "https://github.com/" + repoUrl.owner() + "/" + repoUrl.repo() + ".git";
   }
 
-  private void cloneInto(RepoUrl repoUrl, Path targetDirectory) {
+  /**
+   * Merge commits use up clone depth without counting in the window, so a clone whose window comes
+   * out short is redone twice as deep, until it holds commitWindow non-merge commits or the whole
+   * history, like the window the GitHub API path reads. Re-clones are capped so a merge-heavy giant
+   * cannot exhaust the git timeout: past the cap the window stays short, and commitsAnalyzed in the
+   * result says so. JGit cannot deepen a shallow clone that contains merges (it drops the shallow
+   * markers without fetching the missing commits), hence a fresh clone rather than a deepening
+   * fetch.
+   */
+  private void cloneWindow(RepoUrl repoUrl, Path targetDirectory) {
+    JGitChurnReader reader = new JGitChurnReader(properties.getCommitWindow());
+    int depth = properties.getCommitWindow() + 1;
+    cloneInto(repoUrl, targetDirectory, depth);
+    JGitChurnReader.Window window = reader.scan(targetDirectory);
+    for (int reclones = 0; window.truncated() && reclones < MAX_RECLONES; reclones++) {
+      int commitsSeen = window.commits().size();
+      depth *= 2;
+      deleteClone(targetDirectory);
+      cloneInto(repoUrl, targetDirectory, depth);
+      window = reader.scan(targetDirectory);
+      if (window.commits().size() <= commitsSeen) {
+        break; // the remote ignored the depth: keep this clone rather than loop
+      }
+    }
+  }
+
+  private static void deleteClone(Path targetDirectory) {
+    try {
+      FilesUtils.deleteRecursively(targetDirectory);
+    } catch (IOException e) {
+      throw new GitCommandFailedException("clone", e.getMessage());
+    }
+  }
+
+  private void cloneInto(RepoUrl repoUrl, Path targetDirectory, int depth) {
     String uri = cloneUrl(repoUrl);
     try {
       CloneCommand clone =
@@ -71,10 +108,9 @@ public class JGitScmAdapter implements GitScmPort {
               .setURI(uri)
               .setDirectory(targetDirectory.toFile())
               .setCloneSubmodules(false);
-      int depth = depthFor(uri);
-      if (depth > 0) {
-        clone.setDepth(depth);
-      }
+      // One generation beyond the window so its oldest commit still has a parent to diff
+      // against; the boundary commit itself is skipped by JGitChurnReader.
+      clone.setDepth(depth);
       try (Git ignored = clone.call()) {}
     } catch (GitAPIException e) {
       throw asCloneFailure(uri, e);
@@ -112,12 +148,6 @@ public class JGitScmAdapter implements GitScmPort {
 
   private static Repository open(Path repository) throws IOException {
     return new FileRepositoryBuilder().setGitDir(repository.resolve(".git").toFile()).build();
-  }
-
-  private int depthFor(String uri) {
-    // One extra generation so the oldest commit of the window still has its parent to diff
-    // against; the boundary commit itself is skipped by JGitChurnReader.
-    return uri.startsWith("file:") ? 0 : properties.getCommitWindow() + 1;
   }
 
   private static void ensureEmptyDirectory(Path targetDirectory) {

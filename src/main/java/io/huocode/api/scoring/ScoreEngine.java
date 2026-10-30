@@ -130,15 +130,15 @@ public class ScoreEngine {
                 quadrant(active, complex));
         scoresByPath.put(measurement.path(), score);
       }
-      // The summary, top 5 and repo score describe production code, like the statistics.
-      List<FileScore> productionScores =
-          production.stream().map(measurement -> scoresByPath.get(measurement.path())).toList();
+      // The summary, top 5 and repo score describe the same population as the statistics.
+      List<FileScore> populationScores =
+          population.stream().map(measurement -> scoresByPath.get(measurement.path())).toList();
       quadrantCounts = new EnumMap<>(QuadrantKind.class);
-      for (FileScore score : productionScores) {
+      for (FileScore score : populationScores) {
         quadrantCounts.merge(score.quadrant(), 1, Integer::sum);
       }
-      repoHealthScore = averageHealth(production, scoresByPath);
-      top5 = topScores(productionScores);
+      repoHealthScore = averageHealth(population, scoresByPath);
+      top5 = topScores(populationScores);
     }
 
     int unanalyzedCount = measurements.size() - analyzed.size();

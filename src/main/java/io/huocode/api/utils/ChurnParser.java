@@ -5,6 +5,7 @@ import static java.util.Arrays.copyOfRange;
 import io.huocode.api.model.AnalysisWindowData;
 import io.huocode.api.model.Churn;
 import io.huocode.api.model.RepoChurn;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
@@ -14,8 +15,14 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.PriorityQueue;
 import java.util.Set;
 import java.util.regex.Pattern;
+import org.eclipse.jgit.diff.DiffAlgorithm;
+import org.eclipse.jgit.diff.DiffAlgorithm.SupportedAlgorithm;
+import org.eclipse.jgit.diff.Edit;
+import org.eclipse.jgit.diff.RawText;
+import org.eclipse.jgit.diff.RawTextComparator;
 
 public final class ChurnParser {
 
@@ -58,13 +65,44 @@ public final class ChurnParser {
     return new LineCounts(added, deleted);
   }
 
+  /**
+   * Counts the non-blank added and deleted lines between two versions of a file, with the diff
+   * settings of the clone path (JGit histogram diff, default comparator). Binary content counts 0.
+   */
+  public static LineCounts countChangedLines(String before, String after) {
+    byte[] beforeBytes = before.getBytes(StandardCharsets.UTF_8);
+    byte[] afterBytes = after.getBytes(StandardCharsets.UTF_8);
+    if (RawText.isBinary(beforeBytes) || RawText.isBinary(afterBytes)) {
+      return new LineCounts(0, 0);
+    }
+    RawText a = new RawText(beforeBytes);
+    RawText b = new RawText(afterBytes);
+    int added = 0;
+    int deleted = 0;
+    for (Edit edit :
+        DiffAlgorithm.getAlgorithm(SupportedAlgorithm.HISTOGRAM)
+            .diff(RawTextComparator.DEFAULT, a, b)) {
+      for (int line = edit.getBeginA(); line < edit.getEndA(); line++) {
+        if (isMeaningful(a.getString(line))) {
+          deleted++;
+        }
+      }
+      for (int line = edit.getBeginB(); line < edit.getEndB(); line++) {
+        if (isMeaningful(b.getString(line))) {
+          added++;
+        }
+      }
+    }
+    return new LineCounts(added, deleted);
+  }
+
   private static boolean isMeaningful(String content) {
     return !content.trim().isEmpty();
   }
 
   /**
-   * Aggregates churn per path. Commits must be ordered newest first: a rename then attributes the
-   * older history of the previous path to the path the file has today.
+   * Aggregates churn per path. A rename attributes the earlier history of the previous path to the
+   * path the file has today.
    */
   public static RepoChurn aggregate(List<CommitChurn> commits) {
     Map<String, Integer> commitsByPath = new HashMap<>();
@@ -76,7 +114,10 @@ public final class ChurnParser {
     Map<String, String> currentPathOf = new HashMap<>();
     int commitsAnalyzed = 0;
 
-    for (CommitChurn commit : commits) {
+    for (CommitChurn commit : childrenFirst(commits)) {
+      if (commit.isMerge()) {
+        continue;
+      }
       Map<String, String> renames = new HashMap<>();
       for (PathChange change : commit.changes()) {
         String path = currentPathOf.getOrDefault(change.path(), change.path());
@@ -98,7 +139,10 @@ public final class ChurnParser {
           deletedByPath.merge(path, change.deleted(), Integer::sum);
         }
       }
-      // Registered after the commit itself: only older commits see the previous path.
+      // Registered after the commit itself, so it applies to the commits ordered after it: its
+      // ancestors, and also parallel-branch commits. Edits to the previous path on a parallel
+      // branch were merged into the renamed file, so they usually belong to it too; an unrelated
+      // file recreated under the previous path on such a branch would be misattributed.
       currentPathOf.putAll(renames);
     }
     return new RepoChurn(
@@ -106,7 +150,61 @@ public final class ChurnParser {
         window(commitsAnalyzed, dates, distinctAuthors));
   }
 
-  public record CommitChurn(String author, Instant date, List<PathChange> changes) {}
+  /**
+   * One commit of the window. id and parentIds order the commits by ancestry; a merge commit
+   * (several parents) only carries ancestry: it is neither counted nor diffed.
+   */
+  public record CommitChurn(
+      String id, List<String> parentIds, String author, Instant date, List<PathChange> changes) {
+
+    public CommitChurn(String author, Instant date, List<PathChange> changes) {
+      this(null, List.of(), author, date, changes);
+    }
+
+    public boolean isMerge() {
+      return parentIds.size() > 1;
+    }
+  }
+
+  /**
+   * Orders commits so that every commit comes before its parents, whatever their timestamps (a
+   * rebase or a skewed clock can date a parent after its child). Ties keep the input order.
+   */
+  static List<CommitChurn> childrenFirst(List<CommitChurn> commits) {
+    Map<String, Integer> indexById = new HashMap<>();
+    for (int i = 0; i < commits.size(); i++) {
+      if (commits.get(i).id() != null) {
+        indexById.put(commits.get(i).id(), i);
+      }
+    }
+    int[] pendingChildren = new int[commits.size()];
+    for (CommitChurn commit : commits) {
+      for (String parent : commit.parentIds()) {
+        Integer parentIndex = indexById.get(parent);
+        if (parentIndex != null) {
+          pendingChildren[parentIndex]++;
+        }
+      }
+    }
+    PriorityQueue<Integer> ready = new PriorityQueue<>();
+    for (int i = 0; i < commits.size(); i++) {
+      if (pendingChildren[i] == 0) {
+        ready.add(i);
+      }
+    }
+    List<CommitChurn> ordered = new ArrayList<>(commits.size());
+    while (!ready.isEmpty()) {
+      CommitChurn commit = commits.get(ready.poll());
+      ordered.add(commit);
+      for (String parent : commit.parentIds()) {
+        Integer parentIndex = indexById.get(parent);
+        if (parentIndex != null && --pendingChildren[parentIndex] == 0) {
+          ready.add(parentIndex);
+        }
+      }
+    }
+    return ordered;
+  }
 
   public static RepoChurn parse(String logOutput) {
     List<CommitChurn> commits = new ArrayList<>();

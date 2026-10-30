@@ -99,4 +99,32 @@ class ChurnParserTest {
 
     assertEquals(new ChurnParser.LineCounts(1, 1), ChurnParser.countPatchLines(patch));
   }
+
+  @Test
+  void aggregate_follows_a_rename_by_ancestry_even_when_the_parent_is_dated_after_its_child() {
+    // Input in timestamp order: W (edits a/F.java) is dated after X (renames it to b/F.java)
+    // although W is X's ancestor, through the merge M.
+    List<ChurnParser.CommitChurn> byDate =
+        List.of(
+            new ChurnParser.CommitChurn(
+                "W",
+                List.of("V"),
+                "Alice",
+                null,
+                List.of(new ChurnParser.PathChange("a/F.java", 5, 1))),
+            new ChurnParser.CommitChurn(
+                "X",
+                List.of("M"),
+                "Bob",
+                null,
+                List.of(new ChurnParser.PathChange("b/F.java", "a/F.java", 0, 0))),
+            new ChurnParser.CommitChurn("M", List.of("W", "Z"), "Bob", null, List.of()));
+
+    RepoChurn churn = ChurnParser.aggregate(byDate);
+
+    assertEquals(new Churn(2, 2, 5, 1), churn.churnByPath().get("b/F.java"));
+    assertFalse(churn.churnByPath().containsKey("a/F.java"));
+    // The merge carries ancestry only.
+    assertEquals(2, churn.window().commitsAnalyzed());
+  }
 }

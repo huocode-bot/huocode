@@ -212,6 +212,49 @@ class HttpGitHubApiAdapterTest {
   }
 
   @Test
+  void repoChurn_diffs_both_versions_when_github_omits_the_patch() {
+    stub(
+        "/repos/owner/repo/commits",
+        200,
+        "[" + commitJson("c1", "octocat", "2024-01-01T10:00:00Z") + "]");
+    // GitHub's raw counts (3 / 1) include the added blank line.
+    stub(
+        "/repos/owner/repo/commits/c1",
+        200,
+        "{\"files\":[{\"filename\":\"src/Big.java\",\"status\":\"modified\","
+            + "\"additions\":3,\"deletions\":1}]}");
+    server.createContext(
+        "/repos/owner/repo/contents/src/Big.java",
+        exchange -> {
+          String query = exchange.getRequestURI().getRawQuery();
+          respond(exchange, 200, query.equals("ref=p") ? "a\nb\nc\n" : "a\nB\n\nc\nd\n");
+        });
+
+    RepoChurn churn = adapter.repoChurn(REPO, SHA, 500);
+
+    assertEquals(new Churn(1, 1, 2, 1), churn.churnByPath().get("src/Big.java"));
+  }
+
+  @Test
+  void repoChurn_falls_back_to_raw_counts_when_a_file_version_cannot_be_fetched() {
+    stub(
+        "/repos/owner/repo/commits",
+        200,
+        "[" + commitJson("c1", "octocat", "2024-01-01T10:00:00Z") + "]");
+    stub(
+        "/repos/owner/repo/commits/c1",
+        200,
+        "{\"files\":[{\"filename\":\"data/Huge.java\",\"status\":\"modified\","
+            + "\"additions\":7,\"deletions\":2}]}");
+    // GitHub refuses the blob (missing at the parent, or too large).
+    stub("/repos/owner/repo/contents/data/Huge.java", 404, "{\"message\":\"Not Found\"}");
+
+    RepoChurn churn = adapter.repoChurn(REPO, SHA, 500);
+
+    assertEquals(new Churn(1, 1, 7, 2), churn.churnByPath().get("data/Huge.java"));
+  }
+
+  @Test
   void sends_bearer_token_header() {
     stub("/repos/owner/repo", 200, "{\"default_branch\":\"main\"}");
     adapter.defaultBranch(REPO);
@@ -232,12 +275,47 @@ class HttpGitHubApiAdapterTest {
         403,
         "{\"message\":\"API rate limit exceeded for 1.2.3.4\"}");
     assertThrows(GitHubRateLimitReachedException.class, () -> adapter.defaultBranch(REPO));
+    // The hourly quota is not retried: it only resets at its window.
+    assertEquals(1, authorizationHeaders.size());
   }
 
   @Test
-  void throws_illegal_state_on_5xx() {
-    stub("/repos/owner/repo", 500, "{}");
+  void throws_illegal_state_on_5xx_after_three_attempts() {
+    stub(Map.of("retry-after", "0"), "/repos/owner/repo", 500, "{}");
     assertThrows(IllegalStateException.class, () -> adapter.defaultBranch(REPO));
+    assertEquals(3, authorizationHeaders.size());
+  }
+
+  @Test
+  void retries_a_transient_server_error_until_it_passes() {
+    List<Integer> statuses = new ArrayList<>(List.of(502, 502, 200));
+    server.createContext(
+        "/repos/owner/repo",
+        exchange -> {
+          exchange.getResponseHeaders().add("retry-after", "0");
+          respond(exchange, statuses.remove(0), "{\"default_branch\":\"main\"}");
+        });
+    assertEquals("main", adapter.defaultBranch(REPO));
+    assertTrue(statuses.isEmpty());
+  }
+
+  @Test
+  void retries_the_secondary_rate_limit_but_not_the_primary_one() {
+    List<Integer> statuses = new ArrayList<>(List.of(403, 200));
+    server.createContext(
+        "/repos/owner/repo",
+        exchange -> {
+          exchange.getResponseHeaders().add("retry-after", "0");
+          int status = statuses.remove(0);
+          respond(
+              exchange,
+              status,
+              status == 403
+                  ? "{\"message\":\"You have exceeded a secondary rate limit\"}"
+                  : "{\"default_branch\":\"main\"}");
+        });
+    assertEquals("main", adapter.defaultBranch(REPO));
+    assertTrue(statuses.isEmpty());
   }
 
   private void stub(String path, int status, String body) {

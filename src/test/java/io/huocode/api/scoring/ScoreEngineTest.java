@@ -231,6 +231,22 @@ class ScoreEngineTest {
     assertScore(score, "tiny.java", 55, 100, 94, QuadrantKind.FREQUENT_SIMPLE);
   }
 
+  @Test
+  void a_repo_made_only_of_test_files_is_summarized_from_those_files() {
+    List<FileMeasurement> measurements = new ArrayList<>();
+    for (int i = 1; i <= 15; i++) {
+      measurements.add(analyzed("Calm" + i + "Test.java", 1, 0, 100, true));
+    }
+    measurements.add(analyzed("ComplexTest.java", 40, 0, 100, true));
+
+    RepoScore score = engine.score(measurements);
+
+    assertEquals(16, score.quadrantCounts().values().stream().mapToInt(Integer::intValue).sum());
+    assertEquals("ComplexTest.java", score.top5().get(0).path());
+    // 15 x 100 + 67, all LOC 100: 1567 / 16 = 97.9 -> 98.
+    assertEquals(98, score.repoHealthScore());
+  }
+
   private static void assertScore(
       RepoScore score,
       String path,
