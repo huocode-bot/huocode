@@ -85,4 +85,25 @@ class JGitChurnReaderTest {
     assertEquals(2, window.commits().stream().filter(commit -> !commit.isMerge()).count());
     assertFalse(new JGitChurnReader(2).scan(shallow).truncated());
   }
+
+  @Test
+  void read_counts_the_same_lines_as_the_api_fallback_diff() throws IOException {
+    String before = "class A {\n  int a;\n\n  int b;\n  int c;\n}\n";
+    String after = "class A {\n  int a2;\n\n\n  int c;\n  int d;\n  int e;\n}\n";
+    Path repo = temp.resolve("repo");
+    TestGitRepos.init(repo);
+    TestGitRepos.write(repo, "A.java", before);
+    TestGitRepos.commit(repo, "before");
+    TestGitRepos.write(repo, "A.java", after);
+    TestGitRepos.commit(repo, "after");
+
+    ChurnParser.PathChange change =
+        new JGitChurnReader(1).read(repo).commits().get(0).changes().get(0);
+
+    ChurnParser.LineCounts api = ChurnParser.countChangedLines(before, after);
+    assertEquals(api.added(), change.added());
+    assertEquals(api.deleted(), change.deleted());
+    // a2, d, e added (the blank line is not counted); a, b deleted.
+    assertEquals(new ChurnParser.LineCounts(3, 2), api);
+  }
 }

@@ -212,6 +212,30 @@ class HttpGitHubApiAdapterTest {
   }
 
   @Test
+  void repoChurn_diffs_both_versions_when_github_omits_the_patch() {
+    stub(
+        "/repos/owner/repo/commits",
+        200,
+        "[" + commitJson("c1", "octocat", "2024-01-01T10:00:00Z") + "]");
+    // GitHub's raw counts (3 / 1) include the added blank line.
+    stub(
+        "/repos/owner/repo/commits/c1",
+        200,
+        "{\"files\":[{\"filename\":\"src/Big.java\",\"status\":\"modified\","
+            + "\"additions\":3,\"deletions\":1}]}");
+    server.createContext(
+        "/repos/owner/repo/contents/src/Big.java",
+        exchange -> {
+          String query = exchange.getRequestURI().getRawQuery();
+          respond(exchange, 200, query.equals("ref=p") ? "a\nb\nc\n" : "a\nB\n\nc\nd\n");
+        });
+
+    RepoChurn churn = adapter.repoChurn(REPO, SHA, 500);
+
+    assertEquals(new Churn(1, 1, 2, 1), churn.churnByPath().get("src/Big.java"));
+  }
+
+  @Test
   void sends_bearer_token_header() {
     stub("/repos/owner/repo", 200, "{\"default_branch\":\"main\"}");
     adapter.defaultBranch(REPO);

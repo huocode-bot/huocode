@@ -83,9 +83,9 @@ effectiveLines = linesAdded + linesDeleted
 - A commit whose parent is unavailable (the boundary of a shallow clone) is
   left out, since it cannot be diffed
 - Both retrieval strategies (`clone` and `api_direct`) apply exactly these
-  rules, so the same repository gets the same churn whichever is used. Through
-  the GitHub API, a file diff GitHub does not return (binary or very large)
-  falls back to GitHub's raw line counts
+  rules, so the same repository gets the same churn whichever is used. When
+  GitHub leaves out the diff of a very large file change, both versions of the
+  file are fetched and diffed the way the clone path diffs them
 - Default commit window: 500 commits
 
 The ratio `effectiveLines / linesOfCode` is the "Relative Code Churn"

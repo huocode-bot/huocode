@@ -5,6 +5,7 @@ import static java.util.Arrays.copyOfRange;
 import io.huocode.api.model.AnalysisWindowData;
 import io.huocode.api.model.Churn;
 import io.huocode.api.model.RepoChurn;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
@@ -17,6 +18,11 @@ import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.Set;
 import java.util.regex.Pattern;
+import org.eclipse.jgit.diff.DiffAlgorithm;
+import org.eclipse.jgit.diff.DiffAlgorithm.SupportedAlgorithm;
+import org.eclipse.jgit.diff.Edit;
+import org.eclipse.jgit.diff.RawText;
+import org.eclipse.jgit.diff.RawTextComparator;
 
 public final class ChurnParser {
 
@@ -54,6 +60,37 @@ public final class ChurnParser {
         added++;
       } else if (inHunk && line.startsWith("-") && isMeaningful(line.substring(1))) {
         deleted++;
+      }
+    }
+    return new LineCounts(added, deleted);
+  }
+
+  /**
+   * Counts the non-blank added and deleted lines between two versions of a file, with the diff
+   * settings of the clone path (JGit histogram diff, default comparator). Binary content counts 0.
+   */
+  public static LineCounts countChangedLines(String before, String after) {
+    byte[] beforeBytes = before.getBytes(StandardCharsets.UTF_8);
+    byte[] afterBytes = after.getBytes(StandardCharsets.UTF_8);
+    if (RawText.isBinary(beforeBytes) || RawText.isBinary(afterBytes)) {
+      return new LineCounts(0, 0);
+    }
+    RawText a = new RawText(beforeBytes);
+    RawText b = new RawText(afterBytes);
+    int added = 0;
+    int deleted = 0;
+    for (Edit edit :
+        DiffAlgorithm.getAlgorithm(SupportedAlgorithm.HISTOGRAM)
+            .diff(RawTextComparator.DEFAULT, a, b)) {
+      for (int line = edit.getBeginA(); line < edit.getEndA(); line++) {
+        if (isMeaningful(a.getString(line))) {
+          deleted++;
+        }
+      }
+      for (int line = edit.getBeginB(); line < edit.getEndB(); line++) {
+        if (isMeaningful(b.getString(line))) {
+          added++;
+        }
       }
     }
     return new LineCounts(added, deleted);

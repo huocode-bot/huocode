@@ -1,5 +1,6 @@
 package io.huocode.api.adapter.github;
 
+import static io.huocode.api.utils.ChurnParser.countChangedLines;
 import static io.huocode.api.utils.ChurnParser.countPatchLines;
 import static io.huocode.api.utils.ChurnParser.isBot;
 
@@ -79,8 +80,9 @@ public final class CommitReader {
                       + "&page="
                       + page)
               .path("files");
+      String parentSha = parentIds.isEmpty() ? null : parentIds.get(0);
       for (JsonNode file : files) {
-        changes.add(pathChange(file));
+        changes.add(pathChange(http, repoUrl, sha, parentSha, file));
       }
       if (files.size() < PAGE_SIZE) {
         break;
@@ -89,23 +91,38 @@ public final class CommitReader {
     return new CommitChurn(sha, parentIds, authorOf(item), dateOf(item), changes);
   }
 
-  private static PathChange pathChange(JsonNode file) {
+  private static PathChange pathChange(
+      GitHubApiHttp http, RepoUrl repoUrl, String sha, String parentSha, JsonNode file) {
     String path = file.path("filename").asText();
+    String status = file.path("status").asText();
     String previousPath =
-        "renamed".equals(file.path("status").asText())
-            ? file.path("previous_filename").asText(null)
-            : null;
+        "renamed".equals(status) ? file.path("previous_filename").asText(null) : null;
     LineCounts lines;
     if (file.hasNonNull("patch")) {
       lines = countPatchLines(file.get("patch").asText());
+    } else if (file.path("additions").asInt(0) + file.path("deletions").asInt(0) == 0) {
+      lines = new LineCounts(0, 0); // binary file or pure rename: no line changed
     } else {
-      // GitHub omits the patch of binary and very large diffs: fall back to its raw line counts.
-      lines =
-          new LineCounts(
-              Math.max(0, file.path("additions").asInt(0)),
-              Math.max(0, file.path("deletions").asInt(0)));
+      // GitHub omits the patch of very large diffs; its raw counts would include blank lines, so
+      // both versions are diffed here, the way the clone path does.
+      String before =
+          "added".equals(status) || parentSha == null
+              ? ""
+              : content(http, repoUrl, previousPath != null ? previousPath : path, parentSha);
+      String after = "removed".equals(status) ? "" : content(http, repoUrl, path, sha);
+      lines = countChangedLines(before, after);
     }
     return new PathChange(path, previousPath, lines.added(), lines.deleted());
+  }
+
+  private static String content(GitHubApiHttp http, RepoUrl repoUrl, String path, String sha) {
+    return http.getRaw(
+        repoUrl,
+        http.repoPath(repoUrl)
+            + "/contents/"
+            + GitHubApiHttp.encodePath(path)
+            + "?ref="
+            + GitHubApiHttp.encode(sha));
   }
 
   /** The git author name, as the clone path uses; a bot login wins so bots stay filtered. */
