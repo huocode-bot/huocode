@@ -14,6 +14,7 @@ import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.OptionalLong;
@@ -74,6 +75,10 @@ public class GitHubApiHttp {
       HttpResponse<String> response;
       try {
         response = send(path, raw);
+      } catch (HttpTimeoutException e) {
+        // Already waited a full request timeout: retrying would multiply it.
+        throw new IllegalStateException(
+            "GitHub request timed out for " + repoUrl + ": " + e.getMessage(), e);
       } catch (IOException e) {
         if (attempt < MAX_ATTEMPTS) {
           pause(backoff(attempt));
@@ -125,12 +130,14 @@ public class GitHubApiHttp {
     }
   }
 
-  /** Server errors and GitHub's secondary (abuse) rate limit pass after a short wait. */
+  /** Server errors and GitHub's secondary (abuse) rate limit pass after a wait. */
   private static boolean isTransient(HttpResponse<String> response) {
     int status = response.statusCode();
     return status >= 500
         || status == 429
-        || (status == 403 && response.body().contains("secondary rate limit"));
+        || (status == 403
+            && (response.body().contains("secondary rate limit")
+                || response.body().contains("abuse detection")));
   }
 
   private static Duration retryDelay(HttpResponse<String> response, int attempt) {
@@ -140,9 +147,12 @@ public class GitHubApiHttp {
         return Duration.ofSeconds(Math.clamp(seconds.getAsLong(), 0, MAX_RETRY_DELAY_SECONDS));
       }
     } catch (NumberFormatException e) {
-      // Retry-After given as an HTTP date: use the default backoff.
+      // Retry-After given as an HTTP date: use the defaults below.
     }
-    return backoff(attempt);
+    // GitHub asks to wait at least a minute after a secondary rate limit without Retry-After.
+    return response.statusCode() >= 500
+        ? backoff(attempt)
+        : Duration.ofSeconds(MAX_RETRY_DELAY_SECONDS);
   }
 
   private static Duration backoff(int attempt) {
