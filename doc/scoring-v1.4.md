@@ -117,7 +117,8 @@ outside `src/main` and either sits under a `test`, `tests`, `testFixtures`
 or `integrationTest` directory, or ends with `Test.java`, `Tests.java`,
 `TestCase.java`, `IT.java` or `ITCase.java`. The LoC-weighted average ensures larger files
 carry proportionally more weight. The quadrant summary and the top 5 also
-cover non-test files only.
+cover the statistical population: non-test files, or every analyzed file when
+the repository has no non-test file.
 
 ## Quadrant Classification
 
