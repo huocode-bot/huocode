@@ -1,6 +1,9 @@
 <div align="center">
 
-<img src="assets/logo/horizontal-logo.svg" alt="HuoCode" width="380"/>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/logo/horizontal-logo-dark.svg">
+  <img src="assets/logo/horizontal-logo.svg" alt="HuoCode" width="380"/>
+</picture>
 
 **Free, instant hotspot analysis for any public GitHub repository.**
 
