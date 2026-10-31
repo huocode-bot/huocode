@@ -59,6 +59,7 @@ task generateJavaClient(type: GenerateTask) {
 
     groupId = 'io.huocode'
     id = 'huocode-f72de8a7-gen'
+    version = 'latest'
     skipValidateSpec = false
     logToStderr = true
     generateAliasAsModel = false
