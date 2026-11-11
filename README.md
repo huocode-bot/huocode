@@ -26,6 +26,11 @@ builds on).
 
 Paste a GitHub URL, get a visual answer within seconds. Zero install, zero setup.
 
+## Demo
+
+- [Try HuoCode](https://huocode.vercel.app)
+- [HuoCode UI](https://github.com/Mathieu-bot/huocode-ui)
+
 For every file in the analyzed repository, HuoCode computes:
 
 - a per-file **Code Health Score** (0 to 100) and a **quadrant** explaining *why* the file is flagged,
